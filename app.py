@@ -233,8 +233,10 @@ def draw_results(img_rgb, valid_foods, plate_box, highest_plate_conf, plate_area
 # ==============================================================================
 # Helper: run a single model and display results in a container
 # ==============================================================================
-def analyse_and_display(img_rgb, model_option, container=st):
+def analyse_and_display(img_rgb, model_option, container=None):
     """Load the chosen model, run inference, and render results inside *container*."""
+    if container is None:
+        container = st.container()
     with container:
         # Load model
         with st.spinner(f"Loading {model_option} model..."):
