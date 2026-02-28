@@ -1,0 +1,20 @@
+# Dataset (training only, not needed for deployment)
+food_dataset.zip
+food_dataset/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml
