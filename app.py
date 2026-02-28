@@ -231,49 +231,12 @@ def draw_results(img_rgb, valid_foods, plate_box, highest_plate_conf, plate_area
 
 
 # ==============================================================================
-# Streamlit UI
+# Helper: run a single model and display results in a container
 # ==============================================================================
-st.title("🍚 Zapfan Smart Cashier")
-st.markdown("**AI-Powered Economy Rice (Nasi Campur) Pricing System**")
-st.divider()
-
-# --- Sidebar: Model Selection ---
-with st.sidebar:
-    st.header("⚙️ Settings")
-
-    model_option = st.selectbox(
-        "Select AI Model",
-        options=["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"],
-        index=0,
-    )
-
-    st.divider()
-    st.markdown("### 💰 Price List")
-    st.markdown(f"- **Meat**: {CURRENCY}4.00")
-    st.markdown(f"- **Rice**: {CURRENCY}1.50")
-    st.markdown(f"- **Vege**: {CURRENCY}2.00")
-    st.caption("Portion multipliers: S×0.7, M×1.0, L×1.5")
-
-# --- Main Area: Image Upload ---
-uploaded_file = st.file_uploader(
-    "📸 Upload a picture of your mixed rice plate",
-    type=["jpg", "jpeg", "png"],
-)
-
-if uploaded_file is not None:
-    # Decode the uploaded image
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
-    if img_bgr is None:
-        st.error("Could not read the uploaded image. Please try a different file.")
-    else:
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-        # Show the original upload
-        st.image(img_rgb, caption="Uploaded Image", use_container_width=True)
-
-        # Load the selected model
+def analyse_and_display(img_rgb, model_option, container=st):
+    """Load the chosen model, run inference, and render results inside *container*."""
+    with container:
+        # Load model
         with st.spinner(f"Loading {model_option} model..."):
             if "YOLO" in model_option:
                 model = load_yolo()
@@ -283,68 +246,178 @@ if uploaded_file is not None:
                 model = load_frcnn()
 
         if model is None:
-            st.error(f"Model file not found! Make sure the model weights are in the project folder.")
-        else:
-            # Run inference
-            with st.spinner("🔍 Analyzing your plate..."):
-                if "Faster R-CNN" in model_option:
-                    valid_foods, plate_box, highest_plate_conf = run_frcnn(model, img_rgb)
-                else:
-                    valid_foods, plate_box, highest_plate_conf = run_ultralytics(model, img_rgb)
+            st.error(f"Model file not found for **{model_option}**! "
+                     "Make sure the model weights are in the project folder.")
+            return
 
-            if not valid_foods:
-                st.warning("No food items detected. Please try another image or a different model.")
+        # Run inference
+        with st.spinner(f"🔍 [{model_option}] Analyzing your plate..."):
+            if "Faster R-CNN" in model_option:
+                valid_foods, plate_box, highest_plate_conf = run_frcnn(model, img_rgb)
             else:
-                # Calculate plate area
-                if plate_box is not None:
-                    px1, py1, px2, py2 = plate_box
-                    plate_area = max(1, (px2 - px1) * (py2 - py1))
-                else:
-                    st.info("Plate not detected — estimating from food boundaries.")
-                    min_x = min(d['box'][0] for d in valid_foods)
-                    min_y = min(d['box'][1] for d in valid_foods)
-                    max_x = max(d['box'][2] for d in valid_foods)
-                    max_y = max(d['box'][3] for d in valid_foods)
-                    plate_area = max(1, (max_x - min_x) * (max_y - min_y))
+                valid_foods, plate_box, highest_plate_conf = run_ultralytics(model, img_rgb)
 
-                # Draw results
-                img_display, receipt_lines, total_bill, cropped_images = draw_results(
-                    img_rgb, valid_foods, plate_box, highest_plate_conf, plate_area
+        if not valid_foods:
+            st.warning(f"[{model_option}] No food items detected. Try a different model or image.")
+            return
+
+        # Calculate plate area
+        if plate_box is not None:
+            px1, py1, px2, py2 = plate_box
+            plate_area = max(1, (px2 - px1) * (py2 - py1))
+        else:
+            st.info("Plate not detected — estimating from food boundaries.")
+            min_x = min(d['box'][0] for d in valid_foods)
+            min_y = min(d['box'][1] for d in valid_foods)
+            max_x = max(d['box'][2] for d in valid_foods)
+            max_y = max(d['box'][3] for d in valid_foods)
+            plate_area = max(1, (max_x - min_x) * (max_y - min_y))
+
+        # Draw results
+        img_display, receipt_lines, total_bill, cropped_images = draw_results(
+            img_rgb, valid_foods, plate_box, highest_plate_conf, plate_area
+        )
+
+        # ---- Result columns ----
+        col_img, col_receipt = st.columns([2, 1])
+
+        with col_img:
+            st.subheader("🔍 Detection Result")
+            st.image(img_display, use_container_width=True)
+
+        with col_receipt:
+            st.subheader("🧾 Smart Receipt")
+            model_label = model_option.split(" (")[0]
+            st.caption(f"Model: **{model_label}**")
+
+            for line in receipt_lines:
+                st.markdown(
+                    f"- **{line['item']}** ({line['size']}, {line['ratio']:.1f}%) "
+                    f"— {CURRENCY}{line['price']:.2f}"
                 )
 
-                st.divider()
+            st.divider()
+            st.markdown(f"### Total: {CURRENCY}{total_bill:.2f}")
 
-                # ---- Result columns ----
-                col_img, col_receipt = st.columns([2, 1])
+        # ---- Cropped items ----
+        if cropped_images:
+            st.subheader("✂️ Detected Items")
+            crop_cols = st.columns(min(len(cropped_images), 4))
+            for idx, (c_name, c_score, c_img) in enumerate(cropped_images):
+                with crop_cols[idx % len(crop_cols)]:
+                    st.image(c_img, caption=f"{c_name.upper()} ({c_score:.0%})",
+                             use_container_width=True)
 
-                with col_img:
-                    st.subheader("🔍 Detection Result")
-                    st.image(img_display, use_container_width=True)
 
-                with col_receipt:
-                    st.subheader("🧾 Smart Receipt")
-                    model_label = model_option.split(" (")[0]
-                    st.caption(f"Model: **{model_label}**")
+# ==============================================================================
+# Session State Initialisation
+# ==============================================================================
+if "image_history" not in st.session_state:
+    st.session_state.image_history = []   # list of (filename, img_rgb) tuples
+if "active_index" not in st.session_state:
+    st.session_state.active_index = 0
 
-                    for line in receipt_lines:
-                        st.markdown(
-                            f"- **{line['item']}** ({line['size']}, {line['ratio']:.1f}%) "
-                            f"— {CURRENCY}{line['price']:.2f}"
-                        )
+# ==============================================================================
+# Streamlit UI
+# ==============================================================================
+st.title("🍚 Zapfan Smart Cashier")
+st.markdown("**AI-Powered Economy Rice (Nasi Campur) Pricing System**")
+st.divider()
 
-                    st.divider()
-                    st.markdown(
-                        f"### Total: {CURRENCY}{total_bill:.2f}",
-                    )
+# --- Sidebar ---
+with st.sidebar:
+    st.header("⚙️ Settings")
 
-                # ---- Cropped items ----
-                if cropped_images:
-                    st.divider()
-                    st.subheader("✂️ Detected Items")
-                    crop_cols = st.columns(min(len(cropped_images), 4))
-                    for idx, (c_name, c_score, c_img) in enumerate(cropped_images):
-                        with crop_cols[idx % len(crop_cols)]:
-                            st.image(c_img, caption=f"{c_name.upper()} ({c_score:.0%})",
-                                     use_container_width=True)
+    MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
+    model_option = st.selectbox("Select AI Model", options=MODEL_OPTIONS, index=0)
+
+    compare_all = st.checkbox("🔀 Compare all 3 models side-by-side")
+
+    st.divider()
+    st.markdown("### 💰 Price List")
+    st.markdown(f"- **Meat**: {CURRENCY}4.00")
+    st.markdown(f"- **Rice**: {CURRENCY}1.50")
+    st.markdown(f"- **Vege**: {CURRENCY}2.00")
+    st.caption("Portion multipliers: S×0.7, M×1.0, L×1.5")
+
+    # --- Image History (quick-switch between previous uploads) ---
+    if st.session_state.image_history:
+        st.divider()
+        st.markdown("### 🖼️ Image History")
+        history_labels = [f"{i+1}. {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
+        selected_hist = st.radio(
+            "Switch to a previous upload:",
+            options=range(len(history_labels)),
+            format_func=lambda i: history_labels[i],
+            index=st.session_state.active_index,
+            key="history_radio",
+        )
+        st.session_state.active_index = selected_hist
+
+        if st.button("🗑️ Clear all history"):
+            st.session_state.image_history = []
+            st.session_state.active_index = 0
+            st.rerun()
+
+# --- Main Area: Image Upload ---
+uploaded_file = st.file_uploader(
+    "📸 Upload a picture of your mixed rice plate",
+    type=["jpg", "jpeg", "png"],
+    key="uploader",
+)
+
+# Process a new upload
+if uploaded_file is not None:
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+    if img_bgr is None:
+        st.error("Could not read the uploaded image. Please try a different file.")
+    else:
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        # Avoid duplicate entries for the same filename
+        existing_names = [n for n, _ in st.session_state.image_history]
+        if uploaded_file.name not in existing_names:
+            st.session_state.image_history.append((uploaded_file.name, img_rgb))
+            st.session_state.active_index = len(st.session_state.image_history) - 1
+
+# --- Display active image & run analysis ---
+if st.session_state.image_history:
+    active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
+
+    st.image(img_rgb, caption=f"Current image: {active_name}", use_container_width=True)
+
+    # Action buttons
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    with btn_col1:
+        run_analysis = st.button("▶️ Analyse", type="primary", use_container_width=True)
+    with btn_col2:
+        remove_current = st.button("🗑️ Remove this image", use_container_width=True)
+    with btn_col3:
+        upload_new = st.button("📸 Upload another", use_container_width=True)
+
+    # Handle remove
+    if remove_current:
+        st.session_state.image_history.pop(st.session_state.active_index)
+        if st.session_state.image_history:
+            st.session_state.active_index = max(0, st.session_state.active_index - 1)
+        else:
+            st.session_state.active_index = 0
+        st.rerun()
+
+    # Handle upload-another (just scroll to uploader)
+    if upload_new:
+        st.info("👆 Use the uploader above to add a new image. It will be added to your history.")
+
+    # Run analysis
+    if run_analysis:
+        st.divider()
+        if compare_all:
+            st.subheader("🔀 Side-by-Side Model Comparison")
+            tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
+            for tab, m_opt in zip(tabs, MODEL_OPTIONS):
+                analyse_and_display(img_rgb, m_opt, container=tab)
+        else:
+            analyse_and_display(img_rgb, model_option)
 else:
     st.info("👆 Upload a photo of your economy rice plate to get started!")
