@@ -324,6 +324,8 @@ if "new_upload_pending" not in st.session_state:
     st.session_state.new_upload_pending = False
 if "auto_analyse" not in st.session_state:
     st.session_state.auto_analyse = False
+if "upload_counter" not in st.session_state:
+    st.session_state.upload_counter = 0
 
 # ==============================================================================
 # Streamlit UI
@@ -360,7 +362,7 @@ with st.sidebar:
             options=range(len(history_labels)),
             format_func=lambda i: history_labels[i],
             index=default_idx,
-            key="history_radio",
+            key=f"history_radio_{st.session_state.upload_counter}",
         )
         # Only update active_index from the radio when there is no pending new upload
         if not st.session_state.new_upload_pending:
@@ -409,6 +411,7 @@ if uploaded_file is not None:
             st.session_state.last_file_id = current_file_id
             st.session_state.new_upload_pending = True
             st.session_state.auto_analyse = True
+            st.session_state.upload_counter += 1
             st.rerun()
 
 # --- Display active image & run analysis ---
