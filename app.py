@@ -320,6 +320,8 @@ if "active_index" not in st.session_state:
     st.session_state.active_index = 0
 if "last_file_id" not in st.session_state:
     st.session_state.last_file_id = None
+if "new_upload_pending" not in st.session_state:
+    st.session_state.new_upload_pending = False
 
 # ==============================================================================
 # Streamlit UI
@@ -349,14 +351,20 @@ with st.sidebar:
         st.divider()
         st.markdown("### 🖼️ Image History")
         history_labels = [f"{i+1}. {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
+        # Clamp active_index to valid range
+        default_idx = min(st.session_state.active_index, len(history_labels) - 1)
         selected_hist = st.radio(
             "Switch to a previous upload:",
             options=range(len(history_labels)),
             format_func=lambda i: history_labels[i],
-            index=st.session_state.active_index,
+            index=default_idx,
             key="history_radio",
         )
-        st.session_state.active_index = selected_hist
+        # Only update active_index from the radio when there is no pending new upload
+        if not st.session_state.new_upload_pending:
+            st.session_state.active_index = selected_hist
+        else:
+            st.session_state.new_upload_pending = False
 
         if st.button("🗑️ Clear all history"):
             st.session_state.image_history = []
@@ -397,6 +405,7 @@ if uploaded_file is not None:
             st.session_state.image_history.append((name, img_rgb))
             st.session_state.active_index = len(st.session_state.image_history) - 1
             st.session_state.last_file_id = current_file_id
+            st.session_state.new_upload_pending = True
             st.rerun()
 
 # --- Display active image & run analysis ---
