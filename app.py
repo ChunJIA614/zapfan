@@ -318,6 +318,8 @@ if "image_history" not in st.session_state:
     st.session_state.image_history = []   # list of (filename, img_rgb) tuples
 if "active_index" not in st.session_state:
     st.session_state.active_index = 0
+if "last_file_id" not in st.session_state:
+    st.session_state.last_file_id = None
 
 # ==============================================================================
 # Streamlit UI
@@ -370,18 +372,32 @@ uploaded_file = st.file_uploader(
 
 # Process a new upload
 if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    # Only process if this is a genuinely new upload (different file_id)
+    current_file_id = uploaded_file.file_id
+    if current_file_id != st.session_state.last_file_id:
+        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    if img_bgr is None:
-        st.error("Could not read the uploaded image. Please try a different file.")
-    else:
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        # Avoid duplicate entries for the same filename
-        existing_names = [n for n, _ in st.session_state.image_history]
-        if uploaded_file.name not in existing_names:
-            st.session_state.image_history.append((uploaded_file.name, img_rgb))
+        if img_bgr is None:
+            st.error("Could not read the uploaded image. Please try a different file.")
+        else:
+            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            # Add with a unique label (append count if filename already exists)
+            base_name = uploaded_file.name
+            existing_names = [n for n, _ in st.session_state.image_history]
+            name = base_name
+            counter = 2
+            while name in existing_names:
+                dot = base_name.rfind('.')
+                if dot != -1:
+                    name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
+                else:
+                    name = f"{base_name} ({counter})"
+                counter += 1
+            st.session_state.image_history.append((name, img_rgb))
             st.session_state.active_index = len(st.session_state.image_history) - 1
+            st.session_state.last_file_id = current_file_id
+            st.rerun()
 
 # --- Display active image & run analysis ---
 if st.session_state.image_history:
