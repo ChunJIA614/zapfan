@@ -322,6 +322,8 @@ if "last_file_id" not in st.session_state:
     st.session_state.last_file_id = None
 if "new_upload_pending" not in st.session_state:
     st.session_state.new_upload_pending = False
+if "auto_analyse" not in st.session_state:
+    st.session_state.auto_analyse = False
 
 # ==============================================================================
 # Streamlit UI
@@ -406,6 +408,7 @@ if uploaded_file is not None:
             st.session_state.active_index = len(st.session_state.image_history) - 1
             st.session_state.last_file_id = current_file_id
             st.session_state.new_upload_pending = True
+            st.session_state.auto_analyse = True
             st.rerun()
 
 # --- Display active image & run analysis ---
@@ -436,8 +439,11 @@ if st.session_state.image_history:
     if upload_new:
         st.info("👆 Use the uploader above to add a new image. It will be added to your history.")
 
-    # Run analysis
-    if run_analysis:
+    # Run analysis (manual button or automatic on new upload)
+    should_analyse = run_analysis or st.session_state.auto_analyse
+    if st.session_state.auto_analyse:
+        st.session_state.auto_analyse = False
+    if should_analyse:
         st.divider()
         if compare_all:
             st.subheader("🔀 Side-by-Side Model Comparison")
