@@ -39,13 +39,30 @@ html, body, [class*="css"] {
 }
 .main .block-container { max-width: 1200px; padding-top: 1rem; }
 
-/* ===== Sidebar — clean white Google style ===== */
+/* ===== Sidebar — clean light Google style ===== */
 section[data-testid="stSidebar"] {
-    background: #f8f9fa;
+    background: #f8f9fa !important;
     border-right: 1px solid #dadce0;
 }
-section[data-testid="stSidebar"] [data-testid="stMarkdown"] * {
+section[data-testid="stSidebar"] * {
     color: #3c4043 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] {
+    background: #ffffff !important;
+    border: 1px solid #dadce0 !important;
+    color: #202124 !important;
+}
+section[data-testid="stSidebar"] .stCheckbox label span {
+    color: #3c4043 !important;
+}
+
+/* ===== Force light main area ===== */
+.main, .stApp, [data-testid="stAppViewContainer"] {
+    background-color: #ffffff !important;
+    color: #202124 !important;
+}
+.stApp header[data-testid="stHeader"] {
+    background-color: #ffffff !important;
 }
 
 /* ===== Google-style top bar ===== */
