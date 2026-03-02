@@ -100,11 +100,18 @@ def load_frcnn():
 # Inference Functions
 # ==============================================================================
 def run_ultralytics(model, img_rgb):
-    """Run inference using an Ultralytics model (YOLO / RT-DETR)."""
+    """Run inference using an Ultralytics model (YOLO / RT-DETR).
+
+    Returns
+    -------
+    valid_foods : list[dict]
+        Detected food items (name, box, score).
+    plates : list[dict]
+        All detected plates (box, score), sorted by x-coordinate.
+    """
     results = model.predict(img_rgb, conf=0.25, verbose=False)
     valid_foods = []
-    plate_box = None
-    highest_plate_conf = 0
+    plates = []
 
     for r in results:
         for box in r.boxes:
@@ -114,9 +121,7 @@ def run_ultralytics(model, img_rgb):
             task_name = CLASSES[cls_id]
 
             if task_name == 'plate':
-                if conf > highest_plate_conf:
-                    highest_plate_conf = conf
-                    plate_box = (x1, y1, x2, y2)
+                plates.append({'box': (x1, y1, x2, y2), 'score': conf})
             else:
                 valid_foods.append({
                     'name': task_name,
@@ -124,11 +129,21 @@ def run_ultralytics(model, img_rgb):
                     'score': conf,
                 })
 
-    return valid_foods, plate_box, highest_plate_conf
+    # Sort plates left-to-right so numbering is consistent
+    plates.sort(key=lambda p: p['box'][0])
+    return valid_foods, plates
 
 
 def run_frcnn(model, img_rgb):
-    """Run inference using Faster R-CNN (PyTorch)."""
+    """Run inference using Faster R-CNN (PyTorch).
+
+    Returns
+    -------
+    valid_foods : list[dict]
+        Detected food items (name, box, score).
+    plates : list[dict]
+        All detected plates (box, score), sorted by x-coordinate.
+    """
     device = next(model.parameters()).device
     img_tensor = torch.as_tensor(img_rgb, dtype=torch.float32).permute(2, 0, 1) / 255.0
     img_tensor = img_tensor.unsqueeze(0).to(device)
@@ -143,8 +158,7 @@ def run_frcnn(model, img_rgb):
     scores = predictions['scores'][mask].cpu().numpy()
 
     valid_foods = []
-    plate_box = None
-    highest_plate_conf = 0
+    plates = []
 
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = map(int, box)
@@ -153,9 +167,7 @@ def run_frcnn(model, img_rgb):
         conf = scores[i]
 
         if task_name == 'plate':
-            if conf > highest_plate_conf:
-                highest_plate_conf = conf
-                plate_box = (x1, y1, x2, y2)
+            plates.append({'box': (x1, y1, x2, y2), 'score': conf})
         else:
             valid_foods.append({
                 'name': task_name,
@@ -163,7 +175,9 @@ def run_frcnn(model, img_rgb):
                 'score': conf,
             })
 
-    return valid_foods, plate_box, highest_plate_conf
+    # Sort plates left-to-right so numbering is consistent
+    plates.sort(key=lambda p: p['box'][0])
+    return valid_foods, plates
 
 
 def draw_results(img_rgb, valid_foods, plate_box, highest_plate_conf, plate_area):
