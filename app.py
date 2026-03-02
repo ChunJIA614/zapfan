@@ -25,162 +25,321 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# Custom CSS Theme
+# Custom CSS — Google Material Design inspired
 # ==============================================================================
 st.markdown("""
 <style>
-/* ---------- Global ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+/* ===== Google Fonts ===== */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap');
 
-/* ---------- Sidebar ---------- */
+/* ===== Global ===== */
+html, body, [class*="css"] {
+    font-family: 'Roboto', 'Google Sans', Arial, sans-serif;
+    color: #202124;
+}
+.main .block-container { max-width: 1200px; padding-top: 1rem; }
+
+/* ===== Sidebar — clean white Google style ===== */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+    background: #f8f9fa;
+    border-right: 1px solid #dadce0;
 }
-section[data-testid="stSidebar"] * {
-    color: #e0e0e0 !important;
-}
-section[data-testid="stSidebar"] .stSelectbox label,
-section[data-testid="stSidebar"] .stCheckbox label {
-    font-weight: 500;
+section[data-testid="stSidebar"] [data-testid="stMarkdown"] * {
+    color: #3c4043 !important;
 }
 
-/* ---------- Metric / price cards ---------- */
-.price-card {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 8px;
+/* ===== Google-style top bar ===== */
+.g-topbar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
+    padding: 16px 0 12px 0;
+    border-bottom: 1px solid #dadce0;
+    margin-bottom: 24px;
 }
-.price-card .emoji { font-size: 1.5rem; }
-.price-card .info { line-height: 1.4; }
-.price-card .name { font-weight: 600; font-size: 0.95rem; }
-.price-card .value { font-size: 0.85rem; opacity: 0.8; }
-
-/* ---------- Hero banner ---------- */
-.hero-container {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 16px;
-    padding: 2rem 2.5rem;
-    margin-bottom: 1.5rem;
-    color: white;
+.g-topbar .g-logo {
+    font-family: 'Google Sans', 'Roboto', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #202124;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
-.hero-container h1 { color: white !important; margin: 0 0 0.3rem 0; font-size: 2.2rem; }
-.hero-container p  { color: rgba(255,255,255,0.85) !important; margin: 0; font-size: 1.05rem; }
+.g-topbar .g-logo .g-dot { display: inline-flex; gap: 3px; }
+.g-topbar .g-logo .g-dot span {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.g-dot .d1 { background: #4285f4; }
+.g-dot .d2 { background: #ea4335; }
+.g-dot .d3 { background: #fbbc04; }
+.g-dot .d4 { background: #34a853; }
+.g-topbar .g-subtitle {
+    font-size: 0.88rem;
+    color: #5f6368;
+    font-weight: 400;
+}
 
-/* ---------- Receipt card ---------- */
-.receipt-card {
-    background: #fefefe;
-    border: 1px solid #e5e7eb;
+/* ===== Material Card ===== */
+.m-card {
+    background: #ffffff;
+    border: 1px solid #dadce0;
     border-radius: 12px;
-    padding: 1.2rem 1.4rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 1px 3px rgba(60,64,67,0.08);
+}
+.m-card:hover {
+    box-shadow: 0 1px 3px rgba(60,64,67,0.15), 0 4px 8px rgba(60,64,67,0.1);
+}
+.m-card-flat {
+    background: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+}
+
+/* ===== Sidebar price items ===== */
+.g-price-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+}
+.g-price-item:hover { background: #e8f0fe; }
+.g-price-item .g-icon {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem;
+}
+.g-price-item .g-icon.meat  { background: #fce8e6; }
+.g-price-item .g-icon.rice  { background: #e6f4ea; }
+.g-price-item .g-icon.vege  { background: #fef7e0; }
+.g-price-item .g-text .g-name {
+    font-weight: 500; font-size: 0.9rem; color: #202124;
+}
+.g-price-item .g-text .g-val {
+    font-size: 0.8rem; color: #5f6368;
+}
+
+/* ===== Stat chips (Google-style metric row) ===== */
+.g-stats {
+    display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0;
+}
+.g-chip {
+    background: #e8f0fe;
+    border-radius: 100px;
+    padding: 10px 24px;
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; min-width: 120px;
+    justify-content: center;
+}
+.g-chip .g-chip-num {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.2rem; font-weight: 700; color: #1a73e8;
+}
+.g-chip .g-chip-label {
+    font-size: 0.8rem; color: #5f6368; font-weight: 400;
+}
+
+/* ===== Receipt card ===== */
+.receipt-card {
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 1px 3px rgba(60,64,67,0.08);
 }
 .receipt-header {
-    font-size: 1.1rem;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.05rem;
     font-weight: 700;
-    margin-bottom: 0.8rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px dashed #d1d5db;
+    color: #202124;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e8eaed;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.receipt-header .model-tag {
+    font-weight: 400; font-size: 0.78rem;
+    color: #5f6368; background: #f1f3f4;
+    padding: 2px 10px; border-radius: 100px;
 }
 .receipt-item {
     display: flex;
     justify-content: space-between;
-    padding: 6px 0;
-    font-size: 0.93rem;
-    border-bottom: 1px solid #f3f4f6;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 0.9rem;
+    color: #3c4043;
+    border-bottom: 1px solid #f1f3f4;
 }
-.receipt-item:last-child { border-bottom: none; }
-.receipt-item .label { font-weight: 500; }
+.receipt-item:last-of-type { border-bottom: none; }
+.receipt-item .label {
+    font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+}
 .receipt-item .tag {
-    font-size: 0.75rem;
-    background: #e0e7ff;
-    color: #4338ca;
-    padding: 1px 8px;
-    border-radius: 9999px;
-    font-weight: 600;
-    margin-left: 6px;
+    font-size: 0.7rem;
+    background: #e8f0fe;
+    color: #1a73e8;
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.receipt-item .price {
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500;
+    color: #202124;
 }
 .receipt-total {
-    margin-top: 0.8rem;
-    padding-top: 0.7rem;
-    border-top: 2px solid #111827;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid #202124;
     display: flex;
     justify-content: space-between;
-    font-size: 1.2rem;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.15rem;
     font-weight: 700;
+    color: #202124;
 }
 .receipt-grand {
-    margin-top: 0.6rem;
-    padding-top: 0.7rem;
-    border-top: 3px double #4f46e5;
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 2px solid #1a73e8;
     display: flex;
     justify-content: space-between;
-    font-size: 1.35rem;
-    font-weight: 800;
-    color: #4f46e5;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1a73e8;
 }
 
-/* ---------- Plate section divider ---------- */
+/* ===== Plate badge ===== */
 .plate-badge {
     display: inline-block;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white !important;
-    font-weight: 700;
-    padding: 4px 14px;
-    border-radius: 9999px;
-    font-size: 0.85rem;
-    margin: 0.6rem 0 0.3rem 0;
+    background: #1a73e8;
+    color: #fff !important;
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500;
+    padding: 4px 16px;
+    border-radius: 100px;
+    font-size: 0.8rem;
+    margin: 10px 0 6px 0;
+    letter-spacing: 0.2px;
 }
 
-/* ---------- Stat pill ---------- */
-.stat-row {
-    display: flex; gap: 10px; flex-wrap: wrap; margin: 0.8rem 0;
-}
-.stat-pill {
-    background: #f0fdf4;
-    border: 1px solid #bbf7d0;
-    border-radius: 10px;
-    padding: 10px 18px;
+/* ===== Empty state ===== */
+.g-empty {
     text-align: center;
-    flex: 1;
-    min-width: 100px;
+    padding: 4rem 1rem 3rem 1rem;
 }
-.stat-pill .num  { font-size: 1.4rem; font-weight: 700; color: #166534; }
-.stat-pill .desc { font-size: 0.75rem; color: #6b7280; }
-
-/* ---------- Empty state ---------- */
-.empty-state {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: #9ca3af;
+.g-empty .g-empty-icon {
+    width: 80px; height: 80px;
+    margin: 0 auto 20px auto;
+    background: #e8f0fe;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem;
 }
-.empty-state .icon { font-size: 4rem; margin-bottom: 1rem; }
-.empty-state h3 { color: #6b7280; font-weight: 600; }
-.empty-state p  { color: #9ca3af; }
+.g-empty h3 {
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500; color: #202124; margin: 0 0 8px 0;
+}
+.g-empty p { color: #5f6368; font-size: 0.95rem; margin: 0; }
 
-/* ---------- Misc polish ---------- */
+/* ===== Tabs — Google style ===== */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
+    gap: 0; border-bottom: 2px solid #dadce0;
 }
 .stTabs [data-baseweb="tab"] {
-    border-radius: 8px;
-    padding: 8px 20px;
+    border-radius: 0;
+    padding: 10px 24px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: #5f6368;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #1a73e8 !important;
+    border-bottom: 3px solid #1a73e8;
     font-weight: 500;
 }
 
-/* Footer */
-.footer {
+/* ===== Buttons — Google Material ===== */
+.stButton > button[kind="primary"] {
+    background: #1a73e8 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 100px !important;
+    font-weight: 500 !important;
+    padding: 8px 24px !important;
+    font-size: 0.9rem !important;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.3) !important;
+    transition: box-shadow 0.2s, background 0.2s !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: #1765cc !important;
+    box-shadow: 0 1px 3px rgba(60,64,67,0.4) !important;
+}
+.stButton > button:not([kind="primary"]) {
+    background: #fff !important;
+    color: #1a73e8 !important;
+    border: 1px solid #dadce0 !important;
+    border-radius: 100px !important;
+    font-weight: 500 !important;
+    padding: 8px 24px !important;
+    font-size: 0.9rem !important;
+}
+.stButton > button:not([kind="primary"]):hover {
+    background: #f8f9fa !important;
+    border-color: #1a73e8 !important;
+}
+
+/* ===== File uploader ===== */
+.stFileUploader > div {
+    border: 2px dashed #dadce0 !important;
+    border-radius: 12px !important;
+}
+.stFileUploader > div:hover {
+    border-color: #1a73e8 !important;
+}
+
+/* ===== Image border ===== */
+.stImage > img {
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+}
+
+/* ===== Footer ===== */
+.g-footer {
     text-align: center;
     padding: 2rem 0 1rem 0;
-    color: #9ca3af;
     font-size: 0.8rem;
+    color: #9aa0a6;
+    border-top: 1px solid #e8eaed;
+    margin-top: 2rem;
 }
-.footer a { color: #6366f1; text-decoration: none; }
+.g-footer a { color: #1a73e8; text-decoration: none; }
+.g-footer a:hover { text-decoration: underline; }
+
+/* ===== Section label ===== */
+.g-section {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #202124;
+    margin: 20px 0 10px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -549,13 +708,13 @@ def analyse_and_display(img_rgb, model_option, container=None):
         total_items = sum(len(pr['receipt_lines']) for pr in plate_results)
         model_label = model_option.split(" (")[0]
 
-        # ---- Summary stat pills ----
+        # ---- Summary stat chips (Google style) ----
         plates_word = "Plates" if num_plates != 1 else "Plate"
         stat_html = (
-            '<div class="stat-row">'
-            f'<div class="stat-pill"><div class="num">{num_plates}</div><div class="desc">{plates_word}</div></div>'
-            f'<div class="stat-pill"><div class="num">{total_items}</div><div class="desc">Items</div></div>'
-            f'<div class="stat-pill"><div class="num">{CURRENCY}{grand_total:.2f}</div><div class="desc">Total</div></div>'
+            '<div class="g-stats">'
+            f'<div class="g-chip"><span class="g-chip-num">{num_plates}</span><span class="g-chip-label">{plates_word}</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">{total_items}</span><span class="g-chip-label">Items</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">{CURRENCY}{grand_total:.2f}</span><span class="g-chip-label">Total</span></div>'
             '</div>'
         )
         st.markdown(stat_html, unsafe_allow_html=True)
@@ -564,7 +723,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
         col_img, col_receipt = st.columns([3, 2])
 
         with col_img:
-            st.markdown("##### Detection Result")
+            st.markdown('<div class="g-section">Detection result</div>', unsafe_allow_html=True)
             st.image(img_display, use_container_width=True)
             if num_plates > 1:
                 st.info(f"**{num_plates} plates** detected — prices calculated per plate.")
@@ -574,17 +733,17 @@ def analyse_and_display(img_rgb, model_option, container=None):
             receipt_html = '<div class="receipt-card">'
             receipt_html += (
                 '<div class="receipt-header">'
-                f'🧾 Smart Receipt &nbsp;<span style="font-weight:400;font-size:0.8rem;color:#9ca3af;">({model_label})</span>'
+                f'Receipt <span class="model-tag">{model_label}</span>'
                 '</div>'
             )
 
             for pr in plate_results:
                 if num_plates > 1:
                     pnum = pr["plate_num"]
-                    receipt_html += f'<div class="plate-badge">🍽️ Plate {pnum}</div>'
+                    receipt_html += f'<div class="plate-badge">Plate {pnum}</div>'
 
                 for line in pr['receipt_lines']:
-                    item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
+                    item_emoji = {"Meat": "\ud83e\udd69", "Rice": "\ud83c\udf5a", "Vege": "\ud83e\udd6c"}.get(line['item'], "\ud83c\udf5e")
                     i_name = line["item"]
                     i_size = line["size"]
                     i_price = line["price"]
@@ -592,7 +751,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
                         f'<div class="receipt-item">'
                         f'<span class="label">{item_emoji} {i_name}'
                         f'<span class="tag">{i_size}</span></span>'
-                        f'<span>{CURRENCY}{i_price:.2f}</span>'
+                        f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
                         f'</div>'
                     )
 
@@ -622,11 +781,11 @@ def analyse_and_display(img_rgb, model_option, container=None):
 
         # ---- Cropped items ----
         if all_cropped:
-            with st.expander(f"✂️ Detected Items ({len(all_cropped)})", expanded=False):
+            with st.expander(f"Detected items ({len(all_cropped)})", expanded=False):
                 crop_cols = st.columns(min(len(all_cropped), 4))
                 for idx, (c_name, c_score, c_img) in enumerate(all_cropped):
                     with crop_cols[idx % len(crop_cols)]:
-                        st.image(c_img, caption=f"{c_name.upper()} ({c_score:.0%})",
+                        st.image(c_img, caption=f"{c_name.capitalize()} ({c_score:.0%})",
                                  use_container_width=True)
 
 
@@ -654,11 +813,14 @@ if "camera_counter" not in st.session_state:
 # Streamlit UI
 # ==============================================================================
 
-# --- Hero Banner ---
+# --- Google-style top bar ---
 st.markdown("""
-<div class="hero-container">
-    <h1>🍚 Zapfan Smart Cashier</h1>
-    <p>AI-Powered Economy Rice (Nasi Campur) — Instant Detection &amp; Pricing</p>
+<div class="g-topbar">
+    <div class="g-logo">
+        <span class="g-dot"><span class="d1"></span><span class="d2"></span><span class="d3"></span><span class="d4"></span></span>
+        Zapfan Smart Cashier
+    </div>
+    <div class="g-subtitle">Economy Rice &middot; AI-Powered Detection &amp; Pricing</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -666,26 +828,26 @@ st.markdown("""
 MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
 
 with st.sidebar:
-    st.markdown("### ⚙️ Settings")
+    st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:1.1rem;font-weight:700;color:#202124;margin-bottom:4px;">Settings</p>', unsafe_allow_html=True)
 
-    model_option = st.selectbox("🤖 AI Model", options=MODEL_OPTIONS, index=0)
-    compare_all = st.checkbox("Compare all 3 models side-by-side")
+    model_option = st.selectbox("AI Model", options=MODEL_OPTIONS, index=0)
+    compare_all = st.checkbox("Compare all models side-by-side")
 
-    st.divider()
+    st.markdown("---")
 
-    # Price list as styled cards
-    st.markdown("### 💰 Price Menu")
+    # Google-style price menu
+    st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Price Menu</p>', unsafe_allow_html=True)
     st.markdown("""
-    <div class="price-card"><span class="emoji">🥩</span><div class="info"><div class="name">Meat</div><div class="value">RM 4.00</div></div></div>
-    <div class="price-card"><span class="emoji">🍚</span><div class="info"><div class="name">Rice</div><div class="value">RM 1.50</div></div></div>
-    <div class="price-card"><span class="emoji">🥬</span><div class="info"><div class="name">Vegetable</div><div class="value">RM 2.00</div></div></div>
+    <div class="g-price-item"><div class="g-icon meat">🥩</div><div class="g-text"><div class="g-name">Meat</div><div class="g-val">RM 4.00</div></div></div>
+    <div class="g-price-item"><div class="g-icon rice">🍚</div><div class="g-text"><div class="g-name">Rice</div><div class="g-val">RM 1.50</div></div></div>
+    <div class="g-price-item"><div class="g-icon vege">🥬</div><div class="g-text"><div class="g-name">Vegetable</div><div class="g-val">RM 2.00</div></div></div>
     """, unsafe_allow_html=True)
-    st.caption("Portion multipliers: **S** ×0.7 · **M** ×1.0 · **L** ×1.5")
+    st.caption("Portion: **S** ×0.7 &nbsp; **M** ×1.0 &nbsp; **L** ×1.5")
 
     # --- Image History ---
     if st.session_state.image_history:
-        st.divider()
-        st.markdown("### 🖼️ History")
+        st.markdown("---")
+        st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Recent Images</p>', unsafe_allow_html=True)
         history_labels = [f"{i+1}. {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
         default_idx = min(st.session_state.active_index, len(history_labels) - 1)
         selected_hist = st.radio(
@@ -694,24 +856,24 @@ with st.sidebar:
             format_func=lambda i: history_labels[i],
             index=default_idx,
             key=f"history_radio_{st.session_state.upload_counter}",
+            label_visibility="collapsed",
         )
         if not st.session_state.new_upload_pending:
             st.session_state.active_index = selected_hist
         else:
             st.session_state.new_upload_pending = False
 
-        if st.button("🗑️ Clear all history", use_container_width=True):
+        if st.button("Clear history", use_container_width=True):
             st.session_state.image_history = []
             st.session_state.active_index = 0
             st.rerun()
 
-    # Sidebar footer
-    st.divider()
-    st.caption("Built with Streamlit · Zapfan © 2026")
+    st.markdown("---")
+    st.markdown('<p style="font-size:0.75rem;color:#9aa0a6;text-align:center;">Zapfan © 2026 &middot; Powered by Streamlit</p>', unsafe_allow_html=True)
 
 # --- Main Area: Image Input ---
-st.markdown("##### 📥 Add an Image")
-input_tab_upload, input_tab_camera = st.tabs(["📁 Upload File", "📷 Camera"])
+st.markdown('<div class="g-section">Add an image</div>', unsafe_allow_html=True)
+input_tab_upload, input_tab_camera = st.tabs(["Upload file", "Camera"])
 
 with input_tab_upload:
     uploaded_file = st.file_uploader(
@@ -751,7 +913,7 @@ with input_tab_upload:
                 st.rerun()
 
 with input_tab_camera:
-    st.caption("Use your device camera — the image will be analysed automatically.")
+    st.caption("Use your device camera. The image will be analysed automatically.")
     camera_photo = st.camera_input(
         "Tap to capture",
         key="camera_input",
@@ -787,18 +949,18 @@ with input_tab_camera:
 if st.session_state.image_history:
     active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
 
-    st.markdown("---")
-    st.markdown(f"##### 🖼️ Current Image — *{active_name}*")
+    st.markdown('<div class="g-section">Current image</div>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:#5f6368;font-size:0.85rem;margin:0 0 8px 0;">{active_name}</p>', unsafe_allow_html=True)
     st.image(img_rgb, use_container_width=True)
 
     # Action buttons
     btn_col1, btn_col2, btn_col3 = st.columns([2, 1, 1])
     with btn_col1:
-        run_analysis = st.button("▶️  Analyse Now", type="primary", use_container_width=True)
+        run_analysis = st.button("Analyse", type="primary", use_container_width=True)
     with btn_col2:
-        remove_current = st.button("🗑️ Remove", use_container_width=True)
+        remove_current = st.button("Remove", use_container_width=True)
     with btn_col3:
-        upload_new = st.button("➕ New Image", use_container_width=True)
+        upload_new = st.button("New image", use_container_width=True)
 
     # Handle remove
     if remove_current:
@@ -810,7 +972,7 @@ if st.session_state.image_history:
         st.rerun()
 
     if upload_new:
-        st.info("👆 Use the **Upload File** or **Camera** tab above to add a new image.")
+        st.info("Use the **Upload file** or **Camera** tab above to add a new image.")
 
     # Run analysis (manual button or automatic on new upload)
     should_analyse = run_analysis or st.session_state.auto_analyse
@@ -819,7 +981,7 @@ if st.session_state.image_history:
     if should_analyse:
         st.markdown("---")
         if compare_all:
-            st.markdown("##### 🔀 Model Comparison")
+            st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
             tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
             for tab, m_opt in zip(tabs, MODEL_OPTIONS):
                 analyse_and_display(img_rgb, m_opt, container=tab)
@@ -827,11 +989,11 @@ if st.session_state.image_history:
             analyse_and_display(img_rgb, model_option)
 
     # Footer
-    st.markdown('<div class="footer">Zapfan Smart Cashier © 2026 · Powered by <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-footer">Zapfan Smart Cashier &copy; 2026 &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
 else:
     st.markdown("""
-    <div class="empty-state">
-        <div class="icon">📸</div>
+    <div class="g-empty">
+        <div class="g-empty-icon">📷</div>
         <h3>No image yet</h3>
         <p>Upload a photo or take a picture of your economy rice plate to get started.</p>
     </div>
