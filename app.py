@@ -326,6 +326,10 @@ if "auto_analyse" not in st.session_state:
     st.session_state.auto_analyse = False
 if "upload_counter" not in st.session_state:
     st.session_state.upload_counter = 0
+if "last_camera_id" not in st.session_state:
+    st.session_state.last_camera_id = None
+if "camera_counter" not in st.session_state:
+    st.session_state.camera_counter = 0
 
 # ==============================================================================
 # Streamlit UI
@@ -375,44 +379,78 @@ with st.sidebar:
             st.session_state.active_index = 0
             st.rerun()
 
-# --- Main Area: Image Upload ---
-uploaded_file = st.file_uploader(
-    "📸 Upload a picture of your mixed rice plate",
-    type=["jpg", "jpeg", "png"],
-    key="uploader",
-)
+# --- Main Area: Image Input ---
+input_tab_upload, input_tab_camera = st.tabs(["📁 Upload Image", "📷 Take Photo"])
 
-# Process a new upload
-if uploaded_file is not None:
-    # Only process if this is a genuinely new upload (different file_id)
-    current_file_id = uploaded_file.file_id
-    if current_file_id != st.session_state.last_file_id:
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+with input_tab_upload:
+    uploaded_file = st.file_uploader(
+        "Upload a picture of your mixed rice plate",
+        type=["jpg", "jpeg", "png"],
+        key="uploader",
+    )
 
-        if img_bgr is None:
-            st.error("Could not read the uploaded image. Please try a different file.")
-        else:
-            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            # Add with a unique label (append count if filename already exists)
-            base_name = uploaded_file.name
-            existing_names = [n for n, _ in st.session_state.image_history]
-            name = base_name
-            counter = 2
-            while name in existing_names:
-                dot = base_name.rfind('.')
-                if dot != -1:
-                    name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
-                else:
+    # Process a new upload
+    if uploaded_file is not None:
+        current_file_id = uploaded_file.file_id
+        if current_file_id != st.session_state.last_file_id:
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+            img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+            if img_bgr is None:
+                st.error("Could not read the uploaded image. Please try a different file.")
+            else:
+                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                base_name = uploaded_file.name
+                existing_names = [n for n, _ in st.session_state.image_history]
+                name = base_name
+                counter = 2
+                while name in existing_names:
+                    dot = base_name.rfind('.')
+                    if dot != -1:
+                        name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
+                    else:
+                        name = f"{base_name} ({counter})"
+                    counter += 1
+                st.session_state.image_history.append((name, img_rgb))
+                st.session_state.active_index = len(st.session_state.image_history) - 1
+                st.session_state.last_file_id = current_file_id
+                st.session_state.new_upload_pending = True
+                st.session_state.auto_analyse = True
+                st.session_state.upload_counter += 1
+                st.rerun()
+
+with input_tab_camera:
+    st.markdown("Take a photo using your device camera. The image will be processed immediately.")
+    camera_photo = st.camera_input(
+        "Point your camera at the plate and click to capture",
+        key="camera_input",
+    )
+
+    if camera_photo is not None:
+        current_camera_id = camera_photo.file_id
+        if current_camera_id != st.session_state.last_camera_id:
+            cam_bytes = np.asarray(bytearray(camera_photo.read()), dtype=np.uint8)
+            cam_bgr = cv2.imdecode(cam_bytes, cv2.IMREAD_COLOR)
+
+            if cam_bgr is None:
+                st.error("Could not read the camera image. Please try again.")
+            else:
+                cam_rgb = cv2.cvtColor(cam_bgr, cv2.COLOR_BGR2RGB)
+                st.session_state.camera_counter += 1
+                base_name = f"Camera Shot {st.session_state.camera_counter}"
+                existing_names = [n for n, _ in st.session_state.image_history]
+                name = base_name
+                counter = 2
+                while name in existing_names:
                     name = f"{base_name} ({counter})"
-                counter += 1
-            st.session_state.image_history.append((name, img_rgb))
-            st.session_state.active_index = len(st.session_state.image_history) - 1
-            st.session_state.last_file_id = current_file_id
-            st.session_state.new_upload_pending = True
-            st.session_state.auto_analyse = True
-            st.session_state.upload_counter += 1
-            st.rerun()
+                    counter += 1
+                st.session_state.image_history.append((name, cam_rgb))
+                st.session_state.active_index = len(st.session_state.image_history) - 1
+                st.session_state.last_camera_id = current_camera_id
+                st.session_state.new_upload_pending = True
+                st.session_state.auto_analyse = True
+                st.session_state.upload_counter += 1
+                st.rerun()
 
 # --- Display active image & run analysis ---
 if st.session_state.image_history:
