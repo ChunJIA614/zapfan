@@ -21,7 +21,168 @@ st.set_page_config(
     page_title="Zapfan Smart Cashier",
     page_icon="🍚",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
+
+# ==============================================================================
+# Custom CSS Theme
+# ==============================================================================
+st.markdown("""
+<style>
+/* ---------- Global ---------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
+/* ---------- Sidebar ---------- */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+}
+section[data-testid="stSidebar"] * {
+    color: #e0e0e0 !important;
+}
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stCheckbox label {
+    font-weight: 500;
+}
+
+/* ---------- Metric / price cards ---------- */
+.price-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.price-card .emoji { font-size: 1.5rem; }
+.price-card .info { line-height: 1.4; }
+.price-card .name { font-weight: 600; font-size: 0.95rem; }
+.price-card .value { font-size: 0.85rem; opacity: 0.8; }
+
+/* ---------- Hero banner ---------- */
+.hero-container {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 1.5rem;
+    color: white;
+}
+.hero-container h1 { color: white !important; margin: 0 0 0.3rem 0; font-size: 2.2rem; }
+.hero-container p  { color: rgba(255,255,255,0.85) !important; margin: 0; font-size: 1.05rem; }
+
+/* ---------- Receipt card ---------- */
+.receipt-card {
+    background: #fefefe;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1.2rem 1.4rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.receipt-header {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px dashed #d1d5db;
+}
+.receipt-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 0.93rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+.receipt-item:last-child { border-bottom: none; }
+.receipt-item .label { font-weight: 500; }
+.receipt-item .tag {
+    font-size: 0.75rem;
+    background: #e0e7ff;
+    color: #4338ca;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    font-weight: 600;
+    margin-left: 6px;
+}
+.receipt-total {
+    margin-top: 0.8rem;
+    padding-top: 0.7rem;
+    border-top: 2px solid #111827;
+    display: flex;
+    justify-content: space-between;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+.receipt-grand {
+    margin-top: 0.6rem;
+    padding-top: 0.7rem;
+    border-top: 3px double #4f46e5;
+    display: flex;
+    justify-content: space-between;
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #4f46e5;
+}
+
+/* ---------- Plate section divider ---------- */
+.plate-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white !important;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: 9999px;
+    font-size: 0.85rem;
+    margin: 0.6rem 0 0.3rem 0;
+}
+
+/* ---------- Stat pill ---------- */
+.stat-row {
+    display: flex; gap: 10px; flex-wrap: wrap; margin: 0.8rem 0;
+}
+.stat-pill {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 10px;
+    padding: 10px 18px;
+    text-align: center;
+    flex: 1;
+    min-width: 100px;
+}
+.stat-pill .num  { font-size: 1.4rem; font-weight: 700; color: #166534; }
+.stat-pill .desc { font-size: 0.75rem; color: #6b7280; }
+
+/* ---------- Empty state ---------- */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #9ca3af;
+}
+.empty-state .icon { font-size: 4rem; margin-bottom: 1rem; }
+.empty-state h3 { color: #6b7280; font-weight: 600; }
+.empty-state p  { color: #9ca3af; }
+
+/* ---------- Misc polish ---------- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-weight: 500;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 2rem 0 1rem 0;
+    color: #9ca3af;
+    font-size: 0.8rem;
+}
+.footer a { color: #6366f1; text-decoration: none; }
+</style>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
 # Constants
@@ -368,7 +529,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
             return
 
         # Run inference
-        with st.spinner(f"🔍 [{model_option}] Analyzing your plate(s)..."):
+        with st.spinner(f"Analyzing your plate(s) with {model_option}..."):
             if "Faster R-CNN" in model_option:
                 valid_foods, plates = run_frcnn(model, img_rgb)
             else:
@@ -385,49 +546,88 @@ def analyse_and_display(img_rgb, model_option, container=None):
         )
 
         num_plates = len(plates) if plates else 1
+        total_items = sum(len(pr['receipt_lines']) for pr in plate_results)
+        model_label = model_option.split(" (")[0]
+
+        # ---- Summary stat pills ----
+        plates_word = "Plates" if num_plates != 1 else "Plate"
+        stat_html = (
+            '<div class="stat-row">'
+            f'<div class="stat-pill"><div class="num">{num_plates}</div><div class="desc">{plates_word}</div></div>'
+            f'<div class="stat-pill"><div class="num">{total_items}</div><div class="desc">Items</div></div>'
+            f'<div class="stat-pill"><div class="num">{CURRENCY}{grand_total:.2f}</div><div class="desc">Total</div></div>'
+            '</div>'
+        )
+        st.markdown(stat_html, unsafe_allow_html=True)
 
         # ---- Result columns ----
-        col_img, col_receipt = st.columns([2, 1])
+        col_img, col_receipt = st.columns([3, 2])
 
         with col_img:
-            st.subheader("🔍 Detection Result")
+            st.markdown("##### Detection Result")
             st.image(img_display, use_container_width=True)
             if num_plates > 1:
-                st.info(f"🍽️ **{num_plates} plates** detected — prices calculated separately.")
+                st.info(f"**{num_plates} plates** detected — prices calculated per plate.")
 
         with col_receipt:
-            st.subheader("🧾 Smart Receipt")
-            model_label = model_option.split(" (")[0]
-            st.caption(f"Model: **{model_label}**")
+            # Build receipt HTML
+            receipt_html = '<div class="receipt-card">'
+            receipt_html += (
+                '<div class="receipt-header">'
+                f'🧾 Smart Receipt &nbsp;<span style="font-weight:400;font-size:0.8rem;color:#9ca3af;">({model_label})</span>'
+                '</div>'
+            )
 
             for pr in plate_results:
                 if num_plates > 1:
-                    st.markdown(f"#### 🍽️ Plate {pr['plate_num']}")
+                    pnum = pr["plate_num"]
+                    receipt_html += f'<div class="plate-badge">🍽️ Plate {pnum}</div>'
 
                 for line in pr['receipt_lines']:
-                    st.markdown(
-                        f"- **{line['item']}** ({line['size']}, {line['ratio']:.1f}%) "
-                        f"— {CURRENCY}{line['price']:.2f}"
+                    item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
+                    i_name = line["item"]
+                    i_size = line["size"]
+                    i_price = line["price"]
+                    receipt_html += (
+                        f'<div class="receipt-item">'
+                        f'<span class="label">{item_emoji} {i_name}'
+                        f'<span class="tag">{i_size}</span></span>'
+                        f'<span>{CURRENCY}{i_price:.2f}</span>'
+                        f'</div>'
                     )
 
                 if num_plates > 1:
-                    st.markdown(f"**Subtotal: {CURRENCY}{pr['total']:.2f}**")
-                    st.divider()
+                    p_total = pr["total"]
+                    receipt_html += (
+                        f'<div class="receipt-total">'
+                        f'<span>Subtotal</span><span>{CURRENCY}{p_total:.2f}</span>'
+                        f'</div>'
+                    )
 
             if num_plates > 1:
-                st.markdown(f"### 🧮 Grand Total: {CURRENCY}{grand_total:.2f}")
+                receipt_html += (
+                    f'<div class="receipt-grand">'
+                    f'<span>Grand Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
+                    f'</div>'
+                )
             else:
-                st.divider()
-                st.markdown(f"### Total: {CURRENCY}{grand_total:.2f}")
+                receipt_html += (
+                    f'<div class="receipt-total">'
+                    f'<span>Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
+                    f'</div>'
+                )
+
+            receipt_html += '</div>'
+            st.markdown(receipt_html, unsafe_allow_html=True)
 
         # ---- Cropped items ----
         if all_cropped:
-            st.subheader("✂️ Detected Items")
-            crop_cols = st.columns(min(len(all_cropped), 4))
-            for idx, (c_name, c_score, c_img) in enumerate(all_cropped):
-                with crop_cols[idx % len(crop_cols)]:
-                    st.image(c_img, caption=f"{c_name.upper()} ({c_score:.0%})",
-                             use_container_width=True)
+            with st.expander(f"✂️ Detected Items ({len(all_cropped)})", expanded=False):
+                crop_cols = st.columns(min(len(all_cropped), 4))
+                for idx, (c_name, c_score, c_img) in enumerate(all_cropped):
+                    with crop_cols[idx % len(crop_cols)]:
+                        st.image(c_img, caption=f"{c_name.upper()} ({c_score:.0%})",
+                                 use_container_width=True)
 
 
 # ==============================================================================
@@ -453,57 +653,69 @@ if "camera_counter" not in st.session_state:
 # ==============================================================================
 # Streamlit UI
 # ==============================================================================
-st.title("🍚 Zapfan Smart Cashier")
-st.markdown("**AI-Powered Economy Rice (Nasi Campur) Pricing System**")
-st.divider()
+
+# --- Hero Banner ---
+st.markdown("""
+<div class="hero-container">
+    <h1>🍚 Zapfan Smart Cashier</h1>
+    <p>AI-Powered Economy Rice (Nasi Campur) — Instant Detection &amp; Pricing</p>
+</div>
+""", unsafe_allow_html=True)
 
 # --- Sidebar ---
+MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
+
 with st.sidebar:
-    st.header("⚙️ Settings")
+    st.markdown("### ⚙️ Settings")
 
-    MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
-    model_option = st.selectbox("Select AI Model", options=MODEL_OPTIONS, index=0)
-
-    compare_all = st.checkbox("🔀 Compare all 3 models side-by-side")
+    model_option = st.selectbox("🤖 AI Model", options=MODEL_OPTIONS, index=0)
+    compare_all = st.checkbox("Compare all 3 models side-by-side")
 
     st.divider()
-    st.markdown("### 💰 Price List")
-    st.markdown(f"- **Meat**: {CURRENCY}4.00")
-    st.markdown(f"- **Rice**: {CURRENCY}1.50")
-    st.markdown(f"- **Vege**: {CURRENCY}2.00")
-    st.caption("Portion multipliers: S×0.7, M×1.0, L×1.5")
 
-    # --- Image History (quick-switch between previous uploads) ---
+    # Price list as styled cards
+    st.markdown("### 💰 Price Menu")
+    st.markdown("""
+    <div class="price-card"><span class="emoji">🥩</span><div class="info"><div class="name">Meat</div><div class="value">RM 4.00</div></div></div>
+    <div class="price-card"><span class="emoji">🍚</span><div class="info"><div class="name">Rice</div><div class="value">RM 1.50</div></div></div>
+    <div class="price-card"><span class="emoji">🥬</span><div class="info"><div class="name">Vegetable</div><div class="value">RM 2.00</div></div></div>
+    """, unsafe_allow_html=True)
+    st.caption("Portion multipliers: **S** ×0.7 · **M** ×1.0 · **L** ×1.5")
+
+    # --- Image History ---
     if st.session_state.image_history:
         st.divider()
-        st.markdown("### 🖼️ Image History")
+        st.markdown("### 🖼️ History")
         history_labels = [f"{i+1}. {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
-        # Clamp active_index to valid range
         default_idx = min(st.session_state.active_index, len(history_labels) - 1)
         selected_hist = st.radio(
-            "Switch to a previous upload:",
+            "Switch image:",
             options=range(len(history_labels)),
             format_func=lambda i: history_labels[i],
             index=default_idx,
             key=f"history_radio_{st.session_state.upload_counter}",
         )
-        # Only update active_index from the radio when there is no pending new upload
         if not st.session_state.new_upload_pending:
             st.session_state.active_index = selected_hist
         else:
             st.session_state.new_upload_pending = False
 
-        if st.button("🗑️ Clear all history"):
+        if st.button("🗑️ Clear all history", use_container_width=True):
             st.session_state.image_history = []
             st.session_state.active_index = 0
             st.rerun()
 
+    # Sidebar footer
+    st.divider()
+    st.caption("Built with Streamlit · Zapfan © 2026")
+
 # --- Main Area: Image Input ---
-input_tab_upload, input_tab_camera = st.tabs(["📁 Upload Image", "📷 Take Photo"])
+st.markdown("##### 📥 Add an Image")
+input_tab_upload, input_tab_camera = st.tabs(["📁 Upload File", "📷 Camera"])
 
 with input_tab_upload:
     uploaded_file = st.file_uploader(
-        "Upload a picture of your mixed rice plate",
+        "Drag & drop or browse a photo of your plate",
         type=["jpg", "jpeg", "png"],
         key="uploader",
     )
@@ -539,9 +751,9 @@ with input_tab_upload:
                 st.rerun()
 
 with input_tab_camera:
-    st.markdown("Take a photo using your device camera. The image will be processed immediately.")
+    st.caption("Use your device camera — the image will be analysed automatically.")
     camera_photo = st.camera_input(
-        "Point your camera at the plate and click to capture",
+        "Tap to capture",
         key="camera_input",
     )
 
@@ -575,16 +787,18 @@ with input_tab_camera:
 if st.session_state.image_history:
     active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
 
-    st.image(img_rgb, caption=f"Current image: {active_name}", use_container_width=True)
+    st.markdown("---")
+    st.markdown(f"##### 🖼️ Current Image — *{active_name}*")
+    st.image(img_rgb, use_container_width=True)
 
     # Action buttons
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    btn_col1, btn_col2, btn_col3 = st.columns([2, 1, 1])
     with btn_col1:
-        run_analysis = st.button("▶️ Analyse", type="primary", use_container_width=True)
+        run_analysis = st.button("▶️  Analyse Now", type="primary", use_container_width=True)
     with btn_col2:
-        remove_current = st.button("🗑️ Remove this image", use_container_width=True)
+        remove_current = st.button("🗑️ Remove", use_container_width=True)
     with btn_col3:
-        upload_new = st.button("📸 Upload another", use_container_width=True)
+        upload_new = st.button("➕ New Image", use_container_width=True)
 
     # Handle remove
     if remove_current:
@@ -595,22 +809,30 @@ if st.session_state.image_history:
             st.session_state.active_index = 0
         st.rerun()
 
-    # Handle upload-another (just scroll to uploader)
     if upload_new:
-        st.info("👆 Use the uploader above to add a new image. It will be added to your history.")
+        st.info("👆 Use the **Upload File** or **Camera** tab above to add a new image.")
 
     # Run analysis (manual button or automatic on new upload)
     should_analyse = run_analysis or st.session_state.auto_analyse
     if st.session_state.auto_analyse:
         st.session_state.auto_analyse = False
     if should_analyse:
-        st.divider()
+        st.markdown("---")
         if compare_all:
-            st.subheader("🔀 Side-by-Side Model Comparison")
+            st.markdown("##### 🔀 Model Comparison")
             tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
             for tab, m_opt in zip(tabs, MODEL_OPTIONS):
                 analyse_and_display(img_rgb, m_opt, container=tab)
         else:
             analyse_and_display(img_rgb, model_option)
+
+    # Footer
+    st.markdown('<div class="footer">Zapfan Smart Cashier © 2026 · Powered by <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
 else:
-    st.info("👆 Upload a photo of your economy rice plate to get started!")
+    st.markdown("""
+    <div class="empty-state">
+        <div class="icon">📸</div>
+        <h3>No image yet</h3>
+        <p>Upload a photo or take a picture of your economy rice plate to get started.</p>
+    </div>
+    """, unsafe_allow_html=True)
