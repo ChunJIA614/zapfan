@@ -19,183 +19,344 @@ from PIL import Image
 # ==============================================================================
 st.set_page_config(
     page_title="Zapfan Smart Cashier",
-    page_icon="🍲",
+    page_icon="🍚",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ==============================================================================
-# State & Theme Management
+# Custom CSS — Google Material Design inspired
 # ==============================================================================
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = True # Default to Next-Gen Dark Mode
-
-def toggle_theme():
-    st.session_state.dark_mode = not st.session_state.dark_mode
-
-# ==============================================================================
-# Custom CSS — Google Antigravity UI & Tailwind Injection
-# ==============================================================================
-# Generate CSS variables based on toggle state
-if st.session_state.dark_mode:
-    theme_vars = """
-    :root {
-        --ag-bg: #090e17;
-        --ag-card: rgba(16, 24, 39, 0.55);
-        --ag-border: rgba(255, 255, 255, 0.08);
-        --ag-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-        --ag-text: #f8fafc;
-        --ag-text-muted: #94a3b8;
-        --ag-accent: #0ea5e9; /* Sky Blue */
-        --ag-accent-glow: rgba(14, 165, 233, 0.25);
-        --ag-success: #10b981; /* Emerald */
-        --ag-warning: #f59e0b; /* Amber */
-        
-        /* Streamlit Native Overrides */
-        --background-color: #090e17;
-        --secondary-background-color: #0f172a;
-        --text-color: #f8fafc;
-        --primary-color: #0ea5e9;
-    }
-    """
-else:
-    theme_vars = """
-    :root {
-        --ag-bg: #f4f7fb;
-        --ag-card: rgba(255, 255, 255, 0.65);
-        --ag-border: rgba(255, 255, 255, 0.8);
-        --ag-shadow: 0 10px 40px rgba(14, 165, 233, 0.08);
-        --ag-text: #0f172a;
-        --ag-text-muted: #64748b;
-        --ag-accent: #0284c7; /* Darker Sky Blue */
-        --ag-accent-glow: rgba(2, 132, 199, 0.15);
-        --ag-success: #059669; /* Emerald */
-        --ag-warning: #d97706; /* Amber */
-
-        /* Streamlit Native Overrides */
-        --background-color: #f4f7fb;
-        --secondary-background-color: #ffffff;
-        --text-color: #0f172a;
-        --primary-color: #0284c7;
-    }
-    """
-
-st.markdown(f"""
+st.markdown("""
 <style>
-/* Inject Tailwind CSS via CDN */
-@import url('https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css');
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* ===== Google Fonts ===== */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500;700&display=swap');
 
-{theme_vars}
+/* ===== Global ===== */
+html, body, [class*="css"] {
+    font-family: 'Roboto', 'Google Sans', Arial, sans-serif;
+    color: #202124;
+}
+.main .block-container { max-width: 1200px; padding-top: 1rem; }
 
-/* Global App Styling */
-html, body, [class*="css"] {{
-    font-family: 'Inter', sans-serif !important;
-}}
-.stApp, [data-testid="stAppViewContainer"] {{
-    background-color: var(--ag-bg) !important;
-    background-image: 
-        radial-gradient(circle at 15% 50%, var(--ag-accent-glow), transparent 25%),
-        radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.05), transparent 25%) !important;
-    background-attachment: fixed;
-    color: var(--ag-text) !important;
-}}
+/* ===== Sidebar — clean light Google style ===== */
+section[data-testid="stSidebar"] {
+    background: #f8f9fa !important;
+    border-right: 1px solid #dadce0;
+}
+section[data-testid="stSidebar"] * {
+    color: #3c4043 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] {
+    background: #ffffff !important;
+    border: 1px solid #dadce0 !important;
+    color: #202124 !important;
+}
+section[data-testid="stSidebar"] .stCheckbox label span {
+    color: #3c4043 !important;
+}
 
-/* Hide default streamlit headers/footers to make it look native */
-header[data-testid="stHeader"] {{ background: transparent !important; }}
-#MainMenu {{visibility: hidden;}}
-footer {{visibility: hidden;}}
+/* ===== Force light main area ===== */
+.main, .stApp, [data-testid="stAppViewContainer"] {
+    background-color: #ffffff !important;
+    color: #202124 !important;
+}
+.stApp header[data-testid="stHeader"] {
+    background-color: #ffffff !important;
+}
 
-/* Antigravity Custom Classes */
-.ag-card {{
-    background: var(--ag-card);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--ag-border);
-    border-radius: 24px;
-    box-shadow: var(--ag-shadow);
-    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease;
-}}
-.ag-card:hover {{
-    transform: translateY(-4px);
-    box-shadow: 0 20px 40px var(--ag-accent-glow);
-}}
+/* ===== Google-style top bar ===== */
+.g-topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 0 12px 0;
+    border-bottom: 1px solid #dadce0;
+    margin-bottom: 24px;
+}
+.g-topbar .g-logo {
+    font-family: 'Google Sans', 'Roboto', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #202124;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.g-topbar .g-logo .g-dot { display: inline-flex; gap: 3px; }
+.g-topbar .g-logo .g-dot span {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.g-dot .d1 { background: #4285f4; }
+.g-dot .d2 { background: #ea4335; }
+.g-dot .d3 { background: #fbbc04; }
+.g-dot .d4 { background: #34a853; }
+.g-topbar .g-subtitle {
+    font-size: 0.88rem;
+    color: #5f6368;
+    font-weight: 400;
+}
 
-/* Streamlit Sidebar overrides */
-section[data-testid="stSidebar"] {{
-    background-color: var(--ag-card) !important;
-    backdrop-filter: blur(24px) !important;
-    border-right: 1px solid var(--ag-border) !important;
-}}
+/* ===== Material Card ===== */
+.m-card {
+    background: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 1px 3px rgba(60,64,67,0.08);
+}
+.m-card:hover {
+    box-shadow: 0 1px 3px rgba(60,64,67,0.15), 0 4px 8px rgba(60,64,67,0.1);
+}
+.m-card-flat {
+    background: #ffffff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+}
 
-/* Streamlit Button Overrides (Pill shaped, floating) */
-.stButton > button {{
-    background: var(--ag-card) !important;
-    border: 1px solid var(--ag-border) !important;
-    border-radius: 9999px !important;
-    backdrop-filter: blur(10px);
-    box-shadow: var(--ag-shadow) !important;
-    color: var(--ag-text) !important;
-    font-weight: 600 !important;
-    transition: all 0.3s ease !important;
-    padding: 0.5rem 1.5rem !important;
-}}
-.stButton > button:hover {{
-    transform: translateY(-2px);
-    border-color: var(--ag-accent) !important;
-    color: var(--ag-accent) !important;
-}}
-.stButton > button[kind="primary"] {{
-    background: linear-gradient(135deg, var(--ag-accent), #2563eb) !important;
-    color: #ffffff !important;
-    border: none !important;
-    box-shadow: 0 8px 20px var(--ag-accent-glow) !important;
-}}
-.stButton > button[kind="primary"]:hover {{
-    transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 12px 25px var(--ag-accent-glow) !important;
-    color: #ffffff !important;
-}}
+/* ===== Sidebar price items ===== */
+.g-price-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+}
+.g-price-item:hover { background: #e8f0fe; }
+.g-price-item .g-icon {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem;
+}
+.g-price-item .g-icon.meat  { background: #fce8e6; }
+.g-price-item .g-icon.rice  { background: #e6f4ea; }
+.g-price-item .g-icon.vege  { background: #fef7e0; }
+.g-price-item .g-text .g-name {
+    font-weight: 500; font-size: 0.9rem; color: #202124;
+}
+.g-price-item .g-text .g-val {
+    font-size: 0.8rem; color: #5f6368;
+}
 
-/* Streamlit Image Wrapper styling */
-[data-testid="stImage"] img {{
-    border-radius: 16px;
-    border: 1px solid var(--ag-border);
-    box-shadow: var(--ag-shadow);
-}}
+/* ===== Stat chips (Google-style metric row) ===== */
+.g-stats {
+    display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0;
+}
+.g-chip {
+    background: #e8f0fe;
+    border-radius: 100px;
+    padding: 10px 24px;
+    display: flex; align-items: center; gap: 8px;
+    flex: 1; min-width: 120px;
+    justify-content: center;
+}
+.g-chip .g-chip-num {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.2rem; font-weight: 700; color: #1a73e8;
+}
+.g-chip .g-chip-label {
+    font-size: 0.8rem; color: #5f6368; font-weight: 400;
+}
 
-/* Uploader & Camera container */
-[data-testid="stFileUploader"] > div {{
-    background: var(--ag-card) !important;
-    border: 2px dashed var(--ag-border) !important;
-    border-radius: 20px !important;
-    backdrop-filter: blur(12px);
-    transition: all 0.3s ease;
-}}
-[data-testid="stFileUploader"] > div:hover {{
-    border-color: var(--ag-accent) !important;
-    background: var(--ag-accent-glow) !important;
-}}
-
-/* Tabs styling */
-.stTabs [data-baseweb="tab-list"] {{
-    gap: 8px; background: transparent; border: none;
-}}
-.stTabs[data-baseweb="tab"] {{
-    background: var(--ag-card);
-    border: 1px solid var(--ag-border);
-    border-radius: 9999px;
-    padding: 8px 20px;
+/* ===== Receipt card ===== */
+.receipt-card {
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 1px 3px rgba(60,64,67,0.08);
+}
+.receipt-header {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #202124;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e8eaed;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.receipt-header .model-tag {
+    font-weight: 400; font-size: 0.78rem;
+    color: #5f6368; background: #f1f3f4;
+    padding: 2px 10px; border-radius: 100px;
+}
+.receipt-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 0.9rem;
+    color: #3c4043;
+    border-bottom: 1px solid #f1f3f4;
+}
+.receipt-item:last-of-type { border-bottom: none; }
+.receipt-item .label {
     font-weight: 500;
-    color: var(--ag-text-muted);
-    transition: all 0.2s;
-}}
-.stTabs[data-baseweb="tab"][aria-selected="true"] {{
-    background: var(--ag-accent) !important;
-    color: #ffffff !important;
-    border-color: var(--ag-accent) !important;
-    box-shadow: 0 4px 15px var(--ag-accent-glow);
-}}
+    display: flex; align-items: center; gap: 6px;
+}
+.receipt-item .tag {
+    font-size: 0.7rem;
+    background: #e8f0fe;
+    color: #1a73e8;
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.receipt-item .price {
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500;
+    color: #202124;
+}
+.receipt-total {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid #202124;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #202124;
+}
+.receipt-grand {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 2px solid #1a73e8;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Google Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1a73e8;
+}
+
+/* ===== Plate badge ===== */
+.plate-badge {
+    display: inline-block;
+    background: #1a73e8;
+    color: #fff !important;
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500;
+    padding: 4px 16px;
+    border-radius: 100px;
+    font-size: 0.8rem;
+    margin: 10px 0 6px 0;
+    letter-spacing: 0.2px;
+}
+
+/* ===== Empty state ===== */
+.g-empty {
+    text-align: center;
+    padding: 4rem 1rem 3rem 1rem;
+}
+.g-empty .g-empty-icon {
+    width: 80px; height: 80px;
+    margin: 0 auto 20px auto;
+    background: #e8f0fe;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem;
+}
+.g-empty h3 {
+    font-family: 'Google Sans', sans-serif;
+    font-weight: 500; color: #202124; margin: 0 0 8px 0;
+}
+.g-empty p { color: #5f6368; font-size: 0.95rem; margin: 0; }
+
+/* ===== Tabs — Google style ===== */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0; border-bottom: 2px solid #dadce0;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 0;
+    padding: 10px 24px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: #5f6368;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #1a73e8 !important;
+    border-bottom: 3px solid #1a73e8;
+    font-weight: 500;
+}
+
+/* ===== Buttons — Google Material ===== */
+.stButton > button[kind="primary"] {
+    background: #1a73e8 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 100px !important;
+    font-weight: 500 !important;
+    padding: 8px 24px !important;
+    font-size: 0.9rem !important;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.3) !important;
+    transition: box-shadow 0.2s, background 0.2s !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: #1765cc !important;
+    box-shadow: 0 1px 3px rgba(60,64,67,0.4) !important;
+}
+.stButton > button:not([kind="primary"]) {
+    background: #fff !important;
+    color: #1a73e8 !important;
+    border: 1px solid #dadce0 !important;
+    border-radius: 100px !important;
+    font-weight: 500 !important;
+    padding: 8px 24px !important;
+    font-size: 0.9rem !important;
+}
+.stButton > button:not([kind="primary"]):hover {
+    background: #f8f9fa !important;
+    border-color: #1a73e8 !important;
+}
+
+/* ===== File uploader ===== */
+.stFileUploader > div {
+    border: 2px dashed #dadce0 !important;
+    border-radius: 12px !important;
+}
+.stFileUploader > div:hover {
+    border-color: #1a73e8 !important;
+}
+
+/* ===== Image border ===== */
+.stImage > img {
+    border-radius: 12px;
+    border: 1px solid #dadce0;
+}
+
+/* ===== Footer ===== */
+.g-footer {
+    text-align: center;
+    padding: 2rem 0 1rem 0;
+    font-size: 0.8rem;
+    color: #9aa0a6;
+    border-top: 1px solid #e8eaed;
+    margin-top: 2rem;
+}
+.g-footer a { color: #1a73e8; text-decoration: none; }
+.g-footer a:hover { text-decoration: underline; }
+
+/* ===== Section label ===== */
+.g-section {
+    font-family: 'Google Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #202124;
+    margin: 20px 0 10px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,55 +367,62 @@ CLASSES = ['meat', 'plate', 'rice', 'vege']
 BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
 CURRENCY = "RM"
 SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
-
-# Next-Gen Bounding Box Colors (RGB) - No Purple!
 COLORS = {
-    'meat': (239, 68, 68),    # Rose/Red-500
-    'vege': (16, 185, 129),   # Emerald-500
-    'rice': (226, 232, 240),  # Slate-200
-    'plate': (14, 165, 233),  # Sky-500
+    'rice': (0, 255, 0),
+    'vege': (255, 0, 0),
+    'meat': (0, 0, 255),
+    'plate': (0, 255, 255),
 }
 
-# Distinct colours for plate bounding boxes when multiple plates are present
-_PLATE_COLORS =[
-    (14, 165, 233),   # Sky
-    (245, 158, 11),   # Amber
-    (16, 185, 129),   # Emerald
-    (239, 68, 68),    # Red
-    (99, 102, 241),   # Indigo
-    (20, 184, 166),   # Teal
-]
-
+# Model file paths (relative to this script)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 YOLO_PATH = os.path.join(BASE_DIR, "model_mixed_rice.pt")
 RTDETR_PATH = os.path.join(BASE_DIR, "model_rtdetr_mixed_rice.pt")
 FRCNN_PATH = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
 
+
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
 def get_portion_size(box_area: float, plate_area: float) -> str:
-    if plate_area <= 0: return 'M'
+    """Determine portion size based on box-to-plate area ratio."""
+    if plate_area <= 0:
+        return 'M'
     ratio = box_area / plate_area
-    if ratio < (2 / 9): return 'S'
-    elif ratio > (4 / 9): return 'L'
-    else: return 'M'
+    if ratio < (2 / 9):
+        return 'S'
+    elif ratio > (4 / 9):
+        return 'L'
+    else:
+        return 'M'
 
+
+# ==============================================================================
+# Model Loading (cached so models load only once)
+# ==============================================================================
 @st.cache_resource
 def load_yolo():
-    if not os.path.exists(YOLO_PATH): return None
+    """Load YOLO model."""
+    if not os.path.exists(YOLO_PATH):
+        return None
     from ultralytics import YOLO
     return YOLO(YOLO_PATH)
 
+
 @st.cache_resource
 def load_rtdetr():
-    if not os.path.exists(RTDETR_PATH): return None
+    """Load RT-DETR model."""
+    if not os.path.exists(RTDETR_PATH):
+        return None
     from ultralytics import RTDETR
     return RTDETR(RTDETR_PATH)
 
+
 @st.cache_resource
 def load_frcnn():
-    if not os.path.exists(FRCNN_PATH): return None
+    """Load Faster R-CNN model."""
+    if not os.path.exists(FRCNN_PATH):
+        return None
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
@@ -264,109 +432,202 @@ def load_frcnn():
     model.eval()
     return model
 
+
 # ==============================================================================
-# Inference Logic
+# Inference Functions
 # ==============================================================================
 def run_ultralytics(model, img_rgb):
+    """Run inference using an Ultralytics model (YOLO / RT-DETR).
+
+    Returns
+    -------
+    valid_foods : list[dict]
+        Detected food items (name, box, score).
+    plates : list[dict]
+        All detected plates (box, score), sorted by x-coordinate.
+    """
     results = model.predict(img_rgb, conf=0.25, verbose=False)
-    valid_foods, plates = [],[]
+    valid_foods = []
+    plates = []
+
     for r in results:
         for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
             task_name = CLASSES[cls_id]
+
             if task_name == 'plate':
                 plates.append({'box': (x1, y1, x2, y2), 'score': conf})
             else:
-                valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
+                valid_foods.append({
+                    'name': task_name,
+                    'box': (x1, y1, x2, y2),
+                    'score': conf,
+                })
+
+    # Sort plates left-to-right so numbering is consistent
     plates.sort(key=lambda p: p['box'][0])
     return valid_foods, plates
 
+
 def run_frcnn(model, img_rgb):
+    """Run inference using Faster R-CNN (PyTorch).
+
+    Returns
+    -------
+    valid_foods : list[dict]
+        Detected food items (name, box, score).
+    plates : list[dict]
+        All detected plates (box, score), sorted by x-coordinate.
+    """
     device = next(model.parameters()).device
     img_tensor = torch.as_tensor(img_rgb, dtype=torch.float32).permute(2, 0, 1) / 255.0
     img_tensor = img_tensor.unsqueeze(0).to(device)
+
     with torch.no_grad():
         predictions = model(img_tensor)[0]
+
     CONF_THRESH = 0.5
     mask = predictions['scores'] > CONF_THRESH
     boxes = predictions['boxes'][mask].cpu().numpy()
     labels = predictions['labels'][mask].cpu().numpy()
     scores = predictions['scores'][mask].cpu().numpy()
-    valid_foods, plates = [],[]
+
+    valid_foods = []
+    plates = []
+
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = map(int, box)
-        cls_id = labels[i] - 1
+        cls_id = labels[i] - 1  # Shift for background class
         task_name = CLASSES[cls_id]
         conf = scores[i]
+
         if task_name == 'plate':
             plates.append({'box': (x1, y1, x2, y2), 'score': conf})
         else:
-            valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
+            valid_foods.append({
+                'name': task_name,
+                'box': (x1, y1, x2, y2),
+                'score': conf,
+            })
+
+    # Sort plates left-to-right so numbering is consistent
     plates.sort(key=lambda p: p['box'][0])
     return valid_foods, plates
 
+
 def _intersection_area(box_a, box_b):
-    x1, y1 = max(box_a[0], box_b[0]), max(box_a[1], box_b[1])
-    x2, y2 = min(box_a[2], box_b[2]), min(box_a[3], box_b[3])
-    if x2 > x1 and y2 > y1: return (x2 - x1) * (y2 - y1)
+    """Compute intersection area between two (x1, y1, x2, y2) boxes."""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    if x2 > x1 and y2 > y1:
+        return (x2 - x1) * (y2 - y1)
     return 0
 
+
 def assign_foods_to_plates(valid_foods, plates):
-    if not plates: return {-1: list(valid_foods)}
-    assignments = {i:[] for i in range(len(plates))}
+    """Assign each food item to its most-overlapping plate.
+
+    Returns a dict  plate_index -> [food_items].
+    Index -1 is used when no plates were detected at all.
+    """
+    if not plates:
+        return {-1: list(valid_foods)}
+
+    assignments = {i: [] for i in range(len(plates))}
+
     for food in valid_foods:
         fx1, fy1, fx2, fy2 = food['box']
         food_cx, food_cy = (fx1 + fx2) / 2, (fy1 + fy2) / 2
         food_area = max(1, (fx2 - fx1) * (fy2 - fy1))
-        best_plate, best_overlap = -1, 0
+
+        best_plate = -1
+        best_overlap = 0
+
         for pi, plate in enumerate(plates):
             overlap = _intersection_area(food['box'], plate['box'])
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_plate = pi
+
+        # If overlap covers > 30 % of the food area, assign directly
         if best_plate >= 0 and best_overlap > 0.3 * food_area:
             assignments[best_plate].append(food)
         else:
-            min_dist, nearest = float('inf'), 0
+            # Fall back to nearest plate by center distance
+            min_dist = float('inf')
+            nearest = 0
             for pi, plate in enumerate(plates):
                 px1, py1, px2, py2 = plate['box']
                 plate_cx, plate_cy = (px1 + px2) / 2, (py1 + py2) / 2
                 dist = ((food_cx - plate_cx) ** 2 + (food_cy - plate_cy) ** 2) ** 0.5
                 if dist < min_dist:
-                    min_dist, nearest = dist, pi
+                    min_dist = dist
+                    nearest = pi
             assignments[nearest].append(food)
+
     return assignments
 
+
+# Distinct colours for plate bounding boxes when multiple plates are present
+_PLATE_COLORS = [
+    (0, 255, 255), (255, 165, 0), (255, 0, 255),
+    (128, 255, 0), (0, 128, 255), (255, 128, 128),
+]
+
+
 def draw_results(img_rgb, valid_foods, plates, plate_assignments):
+    """Draw bounding boxes, labels, and per-plate prices on the image.
+
+    Returns
+    -------
+    img_display : ndarray  – annotated image
+    plate_results : list[dict] – per-plate receipt data
+    grand_total : float
+    all_cropped : list[tuple] – (name, score, cropped_img)
+    """
     img_display = img_rgb.copy()
     img_clean = img_rgb.copy()
     grand_total = 0.0
-    plate_results =[]
-    all_cropped =[]
+    plate_results = []
+    all_cropped = []
     num_plates = len(plates) if plates else 1
 
+    # --- Draw every detected plate box ---
     for pi, plate in enumerate(plates):
         px1, py1, px2, py2 = plate['box']
         p_color = _PLATE_COLORS[pi % len(_PLATE_COLORS)]
         cv2.rectangle(img_display, (px1, py1), (px2, py2), p_color, 3)
-        p_label = f"Plate {pi + 1} ({plate['score']:.2f})" if num_plates > 1 else f"Plate ({plate['score']:.2f})"
-        cv2.putText(img_display, p_label, (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
+        p_label = (f"Plate {pi + 1} ({plate['score']:.2f})"
+                   if num_plates > 1
+                   else f"Plate ({plate['score']:.2f})")
+        cv2.putText(img_display, p_label,
+                    (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
 
+    # --- Process each plate group ---
     for plate_idx in sorted(plate_assignments.keys()):
         foods = plate_assignments[plate_idx]
-        if not foods: continue
+        if not foods:
+            continue
+
         plate_num = plate_idx + 1 if plate_idx >= 0 else 1
 
+        # Determine plate area for portion sizing
         if 0 <= plate_idx < len(plates):
             px1, py1, px2, py2 = plates[plate_idx]['box']
             plate_area = max(1, (px2 - px1) * (py2 - py1))
         else:
-            min_x, min_y = min(d['box'][0] for d in foods), min(d['box'][1] for d in foods)
-            max_x, max_y = max(d['box'][2] for d in foods), max(d['box'][3] for d in foods)
+            # No plate detected — estimate from food boundaries
+            min_x = min(d['box'][0] for d in foods)
+            min_y = min(d['box'][1] for d in foods)
+            max_x = max(d['box'][2] for d in foods)
+            max_y = max(d['box'][3] for d in foods)
             plate_area = max(1, (max_x - min_x) * (max_y - min_y))
-            cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y), (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y),
+                          (255, 255, 255), 2, cv2.LINE_AA)
 
         plate_total = 0.0
         receipt_lines = []
@@ -384,245 +645,285 @@ def draw_results(img_rgb, valid_foods, plates, plate_assignments):
 
             ratio_percentage = (box_area / plate_area) * 100
             receipt_lines.append({
-                'item': task_name.capitalize(), 'size': size_label, 'ratio': ratio_percentage, 'price': final_price
+                'item': task_name.capitalize(),
+                'size': size_label,
+                'ratio': ratio_percentage,
+                'price': final_price,
             })
 
+            # Crop
             crop_y1, crop_y2 = max(0, y1), min(img_clean.shape[0], y2)
             crop_x1, crop_x2 = max(0, x1), min(img_clean.shape[1], x2)
             if crop_y2 > crop_y1 and crop_x2 > crop_x1:
                 cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
                 all_cropped.append((task_name, conf, cropped_part))
 
+            # Draw bounding box
             color = COLORS[task_name]
-            # OpenCV expects BGR. Our constants are RGB, so reverse it
             rgb = (color[2], color[1], color[0])
             cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
 
             label = f"{task_name.capitalize()} ({size_label}) {CURRENCY}{final_price:.2f}"
-            if num_plates > 1: label = f"P{plate_num} {label}"
+            if num_plates > 1:
+                label = f"P{plate_num} {label}"
             t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)), (x1 + t_size[0], max(y1, 10)), rgb, -1)
-            cv2.putText(img_display, label, (x1, max(y1 - 5, 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)),
+                          (x1 + t_size[0], max(y1, 10)), rgb, -1)
+            cv2.putText(img_display, label, (x1, max(y1 - 5, 15)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         grand_total += plate_total
-        plate_results.append({'plate_num': plate_num, 'receipt_lines': receipt_lines, 'total': plate_total})
+        plate_results.append({
+            'plate_num': plate_num,
+            'receipt_lines': receipt_lines,
+            'total': plate_total,
+        })
 
     return img_display, plate_results, grand_total, all_cropped
 
+
 # ==============================================================================
-# UI Component Rendering
+# Helper: run a single model and display results in a container
 # ==============================================================================
 def analyse_and_display(img_rgb, model_option, container=None):
+    """Load the chosen model, run inference, and render results inside *container*."""
     if container is None:
         container = st.container()
     with container:
-        with st.spinner(f"Initiating {model_option} neural engine..."):
-            if "YOLO" in model_option: model = load_yolo()
-            elif "RT-DETR" in model_option: model = load_rtdetr()
-            else: model = load_frcnn()
+        # Load model
+        with st.spinner(f"Loading {model_option} model..."):
+            if "YOLO" in model_option:
+                model = load_yolo()
+            elif "RT-DETR" in model_option:
+                model = load_rtdetr()
+            else:
+                model = load_frcnn()
 
         if model is None:
-            st.error(f"System Offline: Model weights for **{model_option}** missing.")
+            st.error(f"Model file not found for **{model_option}**! "
+                     "Make sure the model weights are in the project folder.")
             return
 
-        with st.spinner(f"Analyzing semantic map with {model_option}..."):
-            if "Faster R-CNN" in model_option: valid_foods, plates = run_frcnn(model, img_rgb)
-            else: valid_foods, plates = run_ultralytics(model, img_rgb)
+        # Run inference
+        with st.spinner(f"Analyzing your plate(s) with {model_option}..."):
+            if "Faster R-CNN" in model_option:
+                valid_foods, plates = run_frcnn(model, img_rgb)
+            else:
+                valid_foods, plates = run_ultralytics(model, img_rgb)
 
         if not valid_foods:
-            st.warning("No edible constructs detected. Reposition and try again.")
+            st.warning(f"[{model_option}] No food items detected. Try a different model or image.")
             return
 
+        # Assign foods to plates & draw
         plate_assignments = assign_foods_to_plates(valid_foods, plates)
-        img_display, plate_results, grand_total, all_cropped = draw_results(img_rgb, valid_foods, plates, plate_assignments)
+        img_display, plate_results, grand_total, all_cropped = draw_results(
+            img_rgb, valid_foods, plates, plate_assignments
+        )
 
         num_plates = len(plates) if plates else 1
         total_items = sum(len(pr['receipt_lines']) for pr in plate_results)
         model_label = model_option.split(" (")[0]
 
-        # Antigravity Stat Chips
-        st.markdown(f"""
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-6">
-            <div class="ag-card flex flex-col items-center justify-center p-4">
-                <span class="text-3xl font-extrabold text-[var(--ag-accent)]">{num_plates}</span>
-                <span class="text-xs font-semibold uppercase tracking-wider text-[var(--ag-text-muted)] mt-1">Plates Detected</span>
-            </div>
-            <div class="ag-card flex flex-col items-center justify-center p-4">
-                <span class="text-3xl font-extrabold text-[var(--ag-success)]">{total_items}</span>
-                <span class="text-xs font-semibold uppercase tracking-wider text-[var(--ag-text-muted)] mt-1">Items Categorized</span>
-            </div>
-            <div class="ag-card flex flex-col items-center justify-center p-4">
-                <span class="text-3xl font-extrabold text-[var(--ag-accent)]">{CURRENCY} {grand_total:.2f}</span>
-                <span class="text-xs font-semibold uppercase tracking-wider text-[var(--ag-text-muted)] mt-1">Total Valuation</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # ---- Summary stat chips (Google style) ----
+        plates_word = "Plates" if num_plates != 1 else "Plate"
+        stat_html = (
+            '<div class="g-stats">'
+            f'<div class="g-chip"><span class="g-chip-num">{num_plates}</span><span class="g-chip-label">{plates_word}</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">{total_items}</span><span class="g-chip-label">Items</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">{CURRENCY}{grand_total:.2f}</span><span class="g-chip-label">Total</span></div>'
+            '</div>'
+        )
+        st.markdown(stat_html, unsafe_allow_html=True)
 
+        # ---- Result columns ----
         col_img, col_receipt = st.columns([3, 2])
 
         with col_img:
-            st.markdown('<h3 class="text-lg font-semibold text-[var(--ag-text)] mb-3 tracking-tight">Vision Output</h3>', unsafe_allow_html=True)
+            st.markdown('<div class="g-section">Detection result</div>', unsafe_allow_html=True)
             st.image(img_display, use_container_width=True)
+            if num_plates > 1:
+                st.info(f"**{num_plates} plates** detected — prices calculated per plate.")
 
         with col_receipt:
-            receipt_html = f"""
-            <div class="ag-card p-6">
-                <div class="flex justify-between items-center border-b border-[var(--ag-border)] pb-4 mb-4">
-                    <h3 class="text-xl font-bold tracking-tight text-[var(--ag-text)]">Transaction</h3>
-                    <span class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-full bg-[var(--ag-accent-glow)] text-[var(--ag-accent)] border border-[var(--ag-border)]">{model_label}</span>
-                </div>
-            """
+            # Build receipt using native Streamlit components (robust across all environments)
+            st.markdown(
+                f'<div class="receipt-card"><div class="receipt-header">'
+                f'Receipt <span class="model-tag">{model_label}</span>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+
             for pr in plate_results:
                 if num_plates > 1:
-                    receipt_html += f'<div class="text-xs font-bold uppercase tracking-widest text-[var(--ag-text-muted)] mt-4 mb-2">Plate {pr["plate_num"]}</div>'
-                
+                    pnum = pr["plate_num"]
+                    st.markdown(
+                        f'<div class="plate-badge">Plate {pnum}</div>',
+                        unsafe_allow_html=True,
+                    )
+
                 for line in pr['receipt_lines']:
-                    emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
-                    receipt_html += f"""
-                    <div class="flex justify-between items-center py-2">
-                        <div class="flex items-center gap-3">
-                            <span class="text-lg">{emoji}</span>
-                            <div>
-                                <div class="text-sm font-semibold text-[var(--ag-text)]">{line["item"]}</div>
-                                <div class="text-[10px] text-[var(--ag-text-muted)] uppercase tracking-wide">Size: {line["size"]}</div>
-                            </div>
-                        </div>
-                        <span class="font-bold text-[var(--ag-text)]">{CURRENCY} {line["price"]:.2f}</span>
-                    </div>
-                    """
+                    item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
+                    i_name = line["item"]
+                    i_size = line["size"]
+                    i_price = line["price"]
+                    st.markdown(
+                        f'<div class="receipt-item">'
+                        f'<span class="label">{item_emoji} {i_name}'
+                        f'<span class="tag">{i_size}</span></span>'
+                        f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
                 if num_plates > 1:
-                    receipt_html += f"""
-                    <div class="flex justify-between items-center pt-3 mt-2 border-t border-[var(--ag-border)] border-dashed">
-                        <span class="text-sm font-medium text-[var(--ag-text-muted)]">Subtotal</span>
-                        <span class="text-sm font-bold text-[var(--ag-text)]">{CURRENCY} {pr["total"]:.2f}</span>
-                    </div>
-                    """
+                    p_total = pr["total"]
+                    st.markdown(
+                        f'<div class="receipt-total">'
+                        f'<span>Subtotal</span><span>{CURRENCY}{p_total:.2f}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
-            receipt_html += f"""
-                <div class="flex justify-between items-center pt-4 mt-4 border-t-2 border-[var(--ag-border)]">
-                    <span class="text-lg font-extrabold text-[var(--ag-text)] tracking-tight">Total</span>
-                    <span class="text-2xl font-extrabold text-[var(--ag-accent)]">{CURRENCY} {grand_total:.2f}</span>
-                </div>
-            </div>
-            """
-            st.markdown(receipt_html, unsafe_allow_html=True)
+            if num_plates > 1:
+                st.markdown(
+                    f'<div class="receipt-grand">'
+                    f'<span>Grand Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="receipt-total">'
+                    f'<span>Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
+        # ---- Cropped items ----
         if all_cropped:
-            with st.expander("Explore Detected Constructs"):
+            with st.expander(f"Detected items ({len(all_cropped)})", expanded=False):
                 crop_cols = st.columns(min(len(all_cropped), 4))
                 for idx, (c_name, c_score, c_img) in enumerate(all_cropped):
                     with crop_cols[idx % len(crop_cols)]:
-                        st.image(c_img, caption=f"{c_name.capitalize()} ({c_score:.0%})", use_container_width=True)
+                        st.image(c_img, caption=f"{c_name.capitalize()} ({c_score:.0%})",
+                                 use_container_width=True)
+
 
 # ==============================================================================
-# Initialization
+# Session State Initialisation
 # ==============================================================================
-if "image_history" not in st.session_state: st.session_state.image_history =[]
-if "active_index" not in st.session_state: st.session_state.active_index = 0
-if "last_file_id" not in st.session_state: st.session_state.last_file_id = None
-if "new_upload_pending" not in st.session_state: st.session_state.new_upload_pending = False
-if "auto_analyse" not in st.session_state: st.session_state.auto_analyse = False
-if "upload_counter" not in st.session_state: st.session_state.upload_counter = 0
-if "last_camera_id" not in st.session_state: st.session_state.last_camera_id = None
-if "camera_counter" not in st.session_state: st.session_state.camera_counter = 0
+if "image_history" not in st.session_state:
+    st.session_state.image_history = []   # list of (filename, img_rgb) tuples
+if "active_index" not in st.session_state:
+    st.session_state.active_index = 0
+if "last_file_id" not in st.session_state:
+    st.session_state.last_file_id = None
+if "new_upload_pending" not in st.session_state:
+    st.session_state.new_upload_pending = False
+if "auto_analyse" not in st.session_state:
+    st.session_state.auto_analyse = False
+if "upload_counter" not in st.session_state:
+    st.session_state.upload_counter = 0
+if "last_camera_id" not in st.session_state:
+    st.session_state.last_camera_id = None
+if "camera_counter" not in st.session_state:
+    st.session_state.camera_counter = 0
 
 # ==============================================================================
-# Top Navigation Bar (Antigravity Style)
+# Streamlit UI
 # ==============================================================================
+
+# --- Google-style top bar ---
 st.markdown("""
-<div class="ag-card !p-4 mb-6 flex items-center justify-between">
-    <div class="flex items-center gap-4">
-        <div class="flex gap-1.5 p-2 rounded-full bg-[var(--ag-border)] shadow-inner">
-            <div class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" style="animation-delay: 150ms;"></div>
-            <div class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" style="animation-delay: 300ms;"></div>
-        </div>
-        <h1 class="text-xl md:text-2xl font-extrabold tracking-tight text-[var(--ag-text)]">Zapfan <span class="text-[var(--ag-accent)] font-light">Smart Cashier</span></h1>
+<div class="g-topbar">
+    <div class="g-logo">
+        <span class="g-dot"><span class="d1"></span><span class="d2"></span><span class="d3"></span><span class="d4"></span></span>
+        Zapfan Smart Cashier
     </div>
-    <div class="hidden md:block px-4 py-1.5 rounded-full border border-[var(--ag-border)] bg-[var(--ag-border)] text-xs font-semibold uppercase tracking-widest text-[var(--ag-text-muted)]">
-        AI Detection Engine
-    </div>
+    <div class="g-subtitle">Economy Rice &middot; AI-Powered Detection &amp; Pricing</div>
 </div>
 """, unsafe_allow_html=True)
 
-# ==============================================================================
-# Sidebar
-# ==============================================================================
+# --- Sidebar ---
+MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
+
 with st.sidebar:
-    st.markdown('<div class="text-xs font-bold uppercase tracking-widest text-[var(--ag-text-muted)] mb-3">System Settings</div>', unsafe_allow_html=True)
-    
-    st.toggle("Next-Gen Dark Mode", value=st.session_state.dark_mode, on_change=toggle_theme, key="theme_toggle")
+    st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:1.1rem;font-weight:700;color:#202124;margin-bottom:4px;">Settings</p>', unsafe_allow_html=True)
 
-    MODEL_OPTIONS =["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate)"]
-    model_option = st.selectbox("Neural Model", options=MODEL_OPTIONS, index=0)
-    compare_all = st.checkbox("Multi-Model Matrix")
+    model_option = st.selectbox("AI Model", options=MODEL_OPTIONS, index=0)
+    compare_all = st.checkbox("Compare all models side-by-side")
 
-    st.markdown('<hr style="border-color: var(--ag-border); margin: 2rem 0;">', unsafe_allow_html=True)
+    st.markdown("---")
 
-    st.markdown('<div class="text-xs font-bold uppercase tracking-widest text-[var(--ag-text-muted)] mb-3">Current Pricing</div>', unsafe_allow_html=True)
+    # Google-style price menu
+    st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Price Menu</p>', unsafe_allow_html=True)
     st.markdown("""
-    <div class="ag-card !p-3 mb-3 flex items-center gap-4">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-red-100 text-xl shadow-inner border border-red-200">🥩</div>
-        <div class="flex-1">
-            <div class="text-sm font-bold text-[var(--ag-text)] tracking-tight">Meat Construct</div>
-            <div class="text-xs font-medium text-[var(--ag-accent)]">RM 4.00</div>
-        </div>
-    </div>
-    <div class="ag-card !p-3 mb-3 flex items-center gap-4">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-100 text-xl shadow-inner border border-slate-200">🍚</div>
-        <div class="flex-1">
-            <div class="text-sm font-bold text-[var(--ag-text)] tracking-tight">Carbohydrate Base</div>
-            <div class="text-xs font-medium text-[var(--ag-accent)]">RM 1.50</div>
-        </div>
-    </div>
-    <div class="ag-card !p-3 mb-3 flex items-center gap-4">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-emerald-100 text-xl shadow-inner border border-emerald-200">🥬</div>
-        <div class="flex-1">
-            <div class="text-sm font-bold text-[var(--ag-text)] tracking-tight">Fibrous Matter</div>
-            <div class="text-xs font-medium text-[var(--ag-accent)]">RM 2.00</div>
-        </div>
-    </div>
+    <div class="g-price-item"><div class="g-icon meat">🥩</div><div class="g-text"><div class="g-name">Meat</div><div class="g-val">RM 4.00</div></div></div>
+    <div class="g-price-item"><div class="g-icon rice">🍚</div><div class="g-text"><div class="g-name">Rice</div><div class="g-val">RM 1.50</div></div></div>
+    <div class="g-price-item"><div class="g-icon vege">🥬</div><div class="g-text"><div class="g-name">Vegetable</div><div class="g-val">RM 2.00</div></div></div>
     """, unsafe_allow_html=True)
-    st.caption("Volume scaling: **S** ×0.7 | **M** ×1.0 | **L** ×1.5")
+    st.caption("Portion: **S** ×0.7 &nbsp; **M** ×1.0 &nbsp; **L** ×1.5")
 
+    # --- Image History ---
     if st.session_state.image_history:
-        st.markdown('<hr style="border-color: var(--ag-border); margin: 2rem 0;">', unsafe_allow_html=True)
-        st.markdown('<div class="text-xs font-bold uppercase tracking-widest text-[var(--ag-text-muted)] mb-3">Data Stream</div>', unsafe_allow_html=True)
-        history_labels =[f"Capture {i+1}: {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
+        st.markdown("---")
+        st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Recent Images</p>', unsafe_allow_html=True)
+        history_labels = [f"{i+1}. {name}" for i, (name, _) in enumerate(st.session_state.image_history)]
         default_idx = min(st.session_state.active_index, len(history_labels) - 1)
         selected_hist = st.radio(
-            "Select sequence:", options=range(len(history_labels)), format_func=lambda i: history_labels[i],
-            index=default_idx, key=f"history_radio_{st.session_state.upload_counter}", label_visibility="collapsed"
+            "Switch image:",
+            options=range(len(history_labels)),
+            format_func=lambda i: history_labels[i],
+            index=default_idx,
+            key=f"history_radio_{st.session_state.upload_counter}",
+            label_visibility="collapsed",
         )
-        if not st.session_state.new_upload_pending: st.session_state.active_index = selected_hist
-        else: st.session_state.new_upload_pending = False
+        if not st.session_state.new_upload_pending:
+            st.session_state.active_index = selected_hist
+        else:
+            st.session_state.new_upload_pending = False
 
-        if st.button("Purge Memory", use_container_width=True):
-            st.session_state.image_history =[]
+        if st.button("Clear history", use_container_width=True):
+            st.session_state.image_history = []
             st.session_state.active_index = 0
             st.rerun()
 
-# ==============================================================================
-# Main Work Area
-# ==============================================================================
-input_tab_upload, input_tab_camera = st.tabs(["Link Data Source", "Live Optics"])
+    st.markdown("---")
+    st.markdown('<p style="font-size:0.75rem;color:#9aa0a6;text-align:center;">Zapfan © 2026 &middot; Powered by Streamlit</p>', unsafe_allow_html=True)
+
+# --- Main Area: Image Input ---
+st.markdown('<div class="g-section">Add an image</div>', unsafe_allow_html=True)
+input_tab_upload, input_tab_camera = st.tabs(["Upload file", "Camera"])
 
 with input_tab_upload:
-    uploaded_file = st.file_uploader("Establish uplink via file upload", type=["jpg", "jpeg", "png"], key="uploader")
+    uploaded_file = st.file_uploader(
+        "Drag & drop or browse a photo of your plate",
+        type=["jpg", "jpeg", "png"],
+        key="uploader",
+    )
+
+    # Process a new upload
     if uploaded_file is not None:
         current_file_id = uploaded_file.file_id
         if current_file_id != st.session_state.last_file_id:
             file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
             img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            if img_bgr is not None:
+
+            if img_bgr is None:
+                st.error("Could not read the uploaded image. Please try a different file.")
+            else:
                 img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
                 base_name = uploaded_file.name
-                existing_names =[n for n, _ in st.session_state.image_history]
+                existing_names = [n for n, _ in st.session_state.image_history]
                 name = base_name
                 counter = 2
                 while name in existing_names:
                     dot = base_name.rfind('.')
-                    name = f"{base_name[:dot]} ({counter}){base_name[dot:]}" if dot != -1 else f"{base_name} ({counter})"
+                    if dot != -1:
+                        name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
+                    else:
+                        name = f"{base_name} ({counter})"
                     counter += 1
                 st.session_state.image_history.append((name, img_rgb))
                 st.session_state.active_index = len(st.session_state.image_history) - 1
@@ -633,18 +934,25 @@ with input_tab_upload:
                 st.rerun()
 
 with input_tab_camera:
-    st.markdown('<p class="text-sm text-[var(--ag-text-muted)] mb-2">Initialize optical sensor array.</p>', unsafe_allow_html=True)
-    camera_photo = st.camera_input("Optical Uplink", key="camera_input", label_visibility="collapsed")
+    st.caption("Use your device camera. The image will be analysed automatically.")
+    camera_photo = st.camera_input(
+        "Tap to capture",
+        key="camera_input",
+    )
+
     if camera_photo is not None:
         current_camera_id = camera_photo.file_id
         if current_camera_id != st.session_state.last_camera_id:
             cam_bytes = np.asarray(bytearray(camera_photo.read()), dtype=np.uint8)
             cam_bgr = cv2.imdecode(cam_bytes, cv2.IMREAD_COLOR)
-            if cam_bgr is not None:
+
+            if cam_bgr is None:
+                st.error("Could not read the camera image. Please try again.")
+            else:
                 cam_rgb = cv2.cvtColor(cam_bgr, cv2.COLOR_BGR2RGB)
                 st.session_state.camera_counter += 1
-                base_name = f"Optical Node {st.session_state.camera_counter}"
-                existing_names =[n for n, _ in st.session_state.image_history]
+                base_name = f"Camera Shot {st.session_state.camera_counter}"
+                existing_names = [n for n, _ in st.session_state.image_history]
                 name = base_name
                 counter = 2
                 while name in existing_names:
@@ -658,48 +966,56 @@ with input_tab_camera:
                 st.session_state.upload_counter += 1
                 st.rerun()
 
-# ==============================================================================
-# Active Interface & Analysis Processing
-# ==============================================================================
+# --- Display active image & run analysis ---
 if st.session_state.image_history:
-    st.markdown('<hr style="border-color: var(--ag-border); margin: 2rem 0;">', unsafe_allow_html=True)
     active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
 
-    st.markdown(f'<div class="text-xs font-bold uppercase tracking-widest text-[var(--ag-text-muted)] mb-3">Active Node: {active_name}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-section">Current image</div>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:#5f6368;font-size:0.85rem;margin:0 0 8px 0;">{active_name}</p>', unsafe_allow_html=True)
     st.image(img_rgb, use_container_width=True)
 
+    # Action buttons
     btn_col1, btn_col2, btn_col3 = st.columns([2, 1, 1])
     with btn_col1:
-        run_analysis = st.button("Execute Deep Scan", type="primary", use_container_width=True)
+        run_analysis = st.button("Analyse", type="primary", use_container_width=True)
     with btn_col2:
-        remove_current = st.button("Eject", use_container_width=True)
+        remove_current = st.button("Remove", use_container_width=True)
     with btn_col3:
-        upload_new = st.button("Standby", use_container_width=True)
+        upload_new = st.button("New image", use_container_width=True)
 
+    # Handle remove
     if remove_current:
         st.session_state.image_history.pop(st.session_state.active_index)
-        st.session_state.active_index = max(0, st.session_state.active_index - 1) if st.session_state.image_history else 0
+        if st.session_state.image_history:
+            st.session_state.active_index = max(0, st.session_state.active_index - 1)
+        else:
+            st.session_state.active_index = 0
         st.rerun()
 
+    if upload_new:
+        st.info("Use the **Upload file** or **Camera** tab above to add a new image.")
+
+    # Run analysis (manual button or automatic on new upload)
     should_analyse = run_analysis or st.session_state.auto_analyse
     if st.session_state.auto_analyse:
         st.session_state.auto_analyse = False
-
     if should_analyse:
-        st.markdown('<hr style="border-color: var(--ag-border); margin: 2rem 0;">', unsafe_allow_html=True)
+        st.markdown("---")
         if compare_all:
-            st.markdown('<h3 class="text-xl font-bold text-[var(--ag-text)] tracking-tight mb-4">Neural Matrix Comparison</h3>', unsafe_allow_html=True)
+            st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
             tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
             for tab, m_opt in zip(tabs, MODEL_OPTIONS):
                 analyse_and_display(img_rgb, m_opt, container=tab)
         else:
             analyse_and_display(img_rgb, model_option)
 
+    # Footer
+    st.markdown('<div class="g-footer">Zapfan Smart Cashier &copy; 2026 &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
 else:
     st.markdown("""
-    <div class="ag-card flex flex-col items-center justify-center py-16 px-4 mt-8">
-        <div class="w-20 h-20 rounded-full bg-[var(--ag-border)] shadow-inner flex items-center justify-center text-4xl mb-6 animate-pulse">📡</div>
-        <h3 class="text-2xl font-bold text-[var(--ag-text)] tracking-tight mb-2">Awaiting Input Signal</h3>
-        <p class="text-[var(--ag-text-muted)] text-center max-w-md">Provide visual telemetry via uplink (File) or optical sensor (Camera) to initialize the AI analysis module.</p>
+    <div class="g-empty">
+        <div class="g-empty-icon">📷</div>
+        <h3>No image yet</h3>
+        <p>Upload a photo or take a picture of your economy rice plate to get started.</p>
     </div>
     """, unsafe_allow_html=True)
