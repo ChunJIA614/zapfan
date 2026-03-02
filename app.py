@@ -746,55 +746,59 @@ def analyse_and_display(img_rgb, model_option, container=None):
                 st.info(f"**{num_plates} plates** detected — prices calculated per plate.")
 
         with col_receipt:
-            # Build receipt HTML
-            receipt_html = '<div class="receipt-card">'
-            receipt_html += (
-                '<div class="receipt-header">'
+            # Build receipt using native Streamlit components (robust across all environments)
+            st.markdown(
+                f'<div class="receipt-card"><div class="receipt-header">'
                 f'Receipt <span class="model-tag">{model_label}</span>'
-                '</div>'
+                f'</div></div>',
+                unsafe_allow_html=True,
             )
 
             for pr in plate_results:
                 if num_plates > 1:
                     pnum = pr["plate_num"]
-                    receipt_html += f'<div class="plate-badge">Plate {pnum}</div>'
+                    st.markdown(
+                        f'<div class="plate-badge">Plate {pnum}</div>',
+                        unsafe_allow_html=True,
+                    )
 
                 for line in pr['receipt_lines']:
-                    item_emoji = {"Meat": "\ud83e\udd69", "Rice": "\ud83c\udf5a", "Vege": "\ud83e\udd6c"}.get(line['item'], "\ud83c\udf5e")
+                    item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
                     i_name = line["item"]
                     i_size = line["size"]
                     i_price = line["price"]
-                    receipt_html += (
+                    st.markdown(
                         f'<div class="receipt-item">'
                         f'<span class="label">{item_emoji} {i_name}'
                         f'<span class="tag">{i_size}</span></span>'
                         f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
-                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
                     )
 
                 if num_plates > 1:
                     p_total = pr["total"]
-                    receipt_html += (
+                    st.markdown(
                         f'<div class="receipt-total">'
                         f'<span>Subtotal</span><span>{CURRENCY}{p_total:.2f}</span>'
-                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
                     )
 
             if num_plates > 1:
-                receipt_html += (
+                st.markdown(
                     f'<div class="receipt-grand">'
                     f'<span>Grand Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
-                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
             else:
-                receipt_html += (
+                st.markdown(
                     f'<div class="receipt-total">'
                     f'<span>Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
-                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
-
-            receipt_html += '</div>'
-            st.markdown(receipt_html, unsafe_allow_html=True)
 
         # ---- Cropped items ----
         if all_cropped:
