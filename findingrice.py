@@ -330,7 +330,7 @@ torch.save(model.state_dict(), '/content/faster_rcnn_mixed_rice.pth')
 print("✅ Training Complete! Model saved as faster_rcnn_mixed_rice.pth")
 
 # ==============================================================================
-# ⚖️ Ultimate Edition 3.1: Tri-Model Smart Cashier System (Bug Fixes Applied)
+# ⚖️ Tri-Model Smart Cashier System
 # Models: YOLO (1-stage), RT-DETR (Transformer), Faster R-CNN (2-stage)
 # ==============================================================================
 import cv2
@@ -342,43 +342,62 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import numpy as np
 from ultralytics import YOLO, RTDETR
 from google.colab import files
+import math
 
 print(f"\n{'='*60}")
 print("⚖️ Starting Ultimate Tri-Model Smart Cashier System")
 print(f"{'='*60}")
 
-# --- 1. Basic Configuration ---
 BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
 CURRENCY = "RM"
 SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
 
-# All three models share the same class order because Faster R-CNN was trained
-# using YOLO-format label files (class IDs: 0=meat, 1=rice, 2=vege, 3=plate).
-CLASSES = ['meat', 'rice', 'vege', 'plate']
+CLASSES = ['meat', 'plate', 'rice', 'vege']
 COLORS = {'rice': (0, 255, 0), 'vege': (255, 0, 0), 'meat': (0, 0, 255), 'plate': (0, 255, 255)}
 
-# --- 2. Portion Logic (Ratio-Based) ---
-def get_portion_size(box_area, plate_area):
-    if plate_area <= 0: return 'M'
-    ratio = box_area / plate_area
-    if ratio < (2 / 9): return 'S'
-    elif ratio > (4 / 9): return 'L'
-    else: return 'M'
+def get_portion_size(food_box, plate_box):
+    if plate_box is None:
+        return 'M'
 
-# --- 3. Pre-load All AI Models ---
-print("🔄 Loading the AI models into memory (This may take a moment)...")
+    fx1, fy1, fx2, fy2 = food_box
+    px1, py1, px2, py2 = plate_box
 
-# 3a. YOLO
+    ix1 = max(fx1, px1)
+    iy1 = max(fy1, py1)
+    ix2 = min(fx2, px2)
+    iy2 = min(fy2, py2)
+
+    if ix2 < ix1 or iy2 < iy1:
+        intersect_area = (fx2 - fx1) * (fy2 - fy1)
+    else:
+        intersect_area = (ix2 - ix1) * (iy2 - iy1)
+
+    plate_w = px2 - px1
+    plate_h = py2 - py1
+    plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
+
+    if plate_area <= 0:
+        return 'M'
+
+    ratio = intersect_area / plate_area
+
+    if ratio < 0.15:
+        return 'S'
+    elif ratio > 0.35:
+        return 'L'
+    else:
+        return 'M'
+
+print("🔄 Loading the AI models into memory...")
+
 yolo_path = '/content/model_mixed_rice.pt'
 yolo_model = YOLO(yolo_path) if os.path.exists(yolo_path) else None
 print("✅ YOLO Model loaded!" if yolo_model else "❌ YOLO Model not found.")
 
-# 3b. RT-DETR
 rtdetr_path = '/content/model_rtdetr_mixed_rice.pt'
 rtdetr_model = RTDETR(rtdetr_path) if os.path.exists(rtdetr_path) else None
 print("✅ RT-DETR Model loaded!" if rtdetr_model else "❌ RT-DETR Model not found.")
 
-# 3c. Faster R-CNN (PyTorch)
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 frcnn_path = '/content/faster_rcnn_mixed_rice.pth'
 frcnn_model = None
@@ -393,44 +412,47 @@ if os.path.exists(frcnn_path):
 else:
     print("❌ Faster R-CNN Model not found.")
 
-# --- 4. Core Interactive Loop ---
 current_image_path = None
 
 while True:
     print("\n" + "="*50)
     print("Please select the AI algorithm for pricing:")
-    print("1: YOLO (CNN Single-stage - Max Speed)")
-    print("2: RT-DETR (Transformer - Global Attention)")
-    print("3: Faster R-CNN (Two-stage CNN - High Accuracy)")
-    print("4: Exit System and clear cache")
+    print("1: YOLO")
+    print("2: RT-DETR")
+    print("3: Faster R-CNN")
+    print("4: Exit System")
 
     choice = input("👉 Enter your choice (1/2/3/4): ").strip()
 
     if choice == '4':
-        print("👋 Thank you for using the Zapfan Smart Cashier. Exiting...")
+        print("👋 Exiting...")
         if current_image_path and os.path.exists(current_image_path):
             os.remove(current_image_path)
         break
 
     if choice == '1' and not yolo_model:
-        print("⚠️ YOLO model is not loaded!"); continue
+        print("⚠️ YOLO model is not loaded!")
+        continue
     elif choice == '2' and not rtdetr_model:
-        print("⚠️ RT-DETR model is not loaded!"); continue
+        print("⚠️ RT-DETR model is not loaded!")
+        continue
     elif choice == '3' and not frcnn_model:
-        print("⚠️ Faster R-CNN model is not loaded!"); continue
+        print("⚠️ Faster R-CNN model is not loaded!")
+        continue
     elif choice not in ['1', '2', '3']:
-        print("⚠️ Invalid input. Please enter 1, 2, 3, or 4."); continue
+        print("⚠️ Invalid input.")
+        continue
 
     model_names = {'1': 'YOLO', '2': 'RT-DETR', '3': 'Faster R-CNN'}
     selected_name = model_names[choice]
 
-    if choice == '1': active_model = yolo_model
-    elif choice == '2': active_model = rtdetr_model
-    else: active_model = frcnn_model
+    if choice == '1':
+        active_model = yolo_model
+    elif choice == '2':
+        active_model = rtdetr_model
+    else:
+        active_model = frcnn_model
 
-    # =====================================================
-    # 📸 Smart Image Upload Logic
-    # =====================================================
     if current_image_path and os.path.exists(current_image_path):
         reuse = input(f"🔄 Reuse the previous image for [{selected_name}] testing? (y/n, default y): ").strip().lower()
         if reuse == 'n':
@@ -438,25 +460,21 @@ while True:
             current_image_path = None
 
     if not current_image_path:
-        print(f"\n📸 Please upload a picture of the mixed rice for [{selected_name}] analysis...")
+        print(f"\n📸 Please upload a picture...")
         try:
             uploaded = files.upload()
             if not uploaded:
-                print("⚠️ No image uploaded. Returning to main menu.")
+                print("⚠️ No image uploaded.")
                 continue
             current_image_path = list(uploaded.keys())[0]
         except Exception as e:
             print(f"❌ Upload error: {e}")
             continue
 
-    # =====================================================
-    # 🧠 Start Inference Branching
-    # =====================================================
     try:
-        # --- FIX: Safe Image Loading Check ---
         img = cv2.imread(current_image_path)
         if img is None:
-            print(f"❌ Error: Could not read image file at '{current_image_path}'. The file might be corrupted or missing.")
+            print(f"❌ Error: Could not read image.")
             current_image_path = None
             continue
 
@@ -467,14 +485,17 @@ while True:
         plate_box = None
         highest_plate_conf = 0
 
-        # --- BRANCH A: Ultralytics Logic (YOLO / RT-DETR) ---
         if choice in ['1', '2']:
-            results = active_model.predict(img_display, conf=0.25, verbose=False)
+            results = active_model.predict(img_display, conf=0.25, iou=0.45, verbose=False)
             for r in results:
                 for box in r.boxes:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     conf = float(box.conf[0])
                     cls_id = int(box.cls[0])
+
+                    if cls_id >= len(CLASSES):
+                        continue
+
                     task_name = CLASSES[cls_id]
 
                     if task_name == 'plate':
@@ -484,7 +505,6 @@ while True:
                     else:
                         valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
 
-        # --- BRANCH B: PyTorch Logic (Faster R-CNN) ---
         elif choice == '3':
             img_tensor = torch.as_tensor(img_display, dtype=torch.float32).permute(2, 0, 1) / 255.0
             img_tensor = img_tensor.unsqueeze(0).to(device)
@@ -494,13 +514,22 @@ while True:
 
             CONF_THRESH = 0.5
             mask = predictions['scores'] > CONF_THRESH
-            boxes = predictions['boxes'][mask].cpu().numpy()
-            labels = predictions['labels'][mask].cpu().numpy()
-            scores = predictions['scores'][mask].cpu().numpy()
+            boxes = predictions['boxes'][mask]
+            labels = predictions['labels'][mask]
+            scores = predictions['scores'][mask]
+
+            keep = torchvision.ops.nms(boxes, scores, iou_threshold=0.3)
+            boxes = boxes[keep].cpu().numpy()
+            labels = labels[keep].cpu().numpy()
+            scores = scores[keep].cpu().numpy()
 
             for i, box in enumerate(boxes):
                 x1, y1, x2, y2 = map(int, box)
                 cls_id = labels[i] - 1
+
+                if cls_id < 0 or cls_id >= len(CLASSES):
+                    continue
+
                 task_name = CLASSES[cls_id]
                 conf = scores[i]
 
@@ -511,56 +540,56 @@ while True:
                 else:
                     valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
 
-        # =====================================================
-        # Unified Downstream Processing
-        # =====================================================
         if not valid_foods:
-            print(f"⚠️ [{selected_name}] could not detect any food. Try another image.")
+            print(f"⚠️ [{selected_name}] could not detect any food.")
             os.remove(current_image_path)
             current_image_path = None
             continue
 
-        # 🍽️ Plate Calculation
         if plate_box is not None:
             px1, py1, px2, py2 = plate_box
-            plate_area = max(1, (px2 - px1) * (py2 - py1))
+            plate_w = px2 - px1
+            plate_h = py2 - py1
+            plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
             cv2.rectangle(img_display, (px1, py1), (px2, py2), COLORS['plate'], 3)
             cv2.putText(img_display, f"Plate ({highest_plate_conf:.2f})", (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS['plate'], 2)
         else:
-            print("⚠️ Plate not detected. Estimating plate from food boundaries...")
+            print("⚠️ Plate not detected. Estimating...")
             min_x = min([d['box'][0] for d in valid_foods])
             min_y = min([d['box'][1] for d in valid_foods])
             max_x = max([d['box'][2] for d in valid_foods])
             max_y = max([d['box'][3] for d in valid_foods])
-            plate_area = max(1, (max_x - min_x) * (max_y - min_y))
-            # --- FIX: Replaced LINE_DASH with LINE_AA ---
+            plate_box = (min_x, min_y, max_x, max_y)
+            plate_area = math.pi * ((max_x - min_x) / 2) * ((max_y - min_y) / 2)
             cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y), (255, 255, 255), 2, cv2.LINE_AA)
 
-        # 💰 Pricing, Drawing, and Cropping
         total_bill = 0.0
         receipt_lines = []
         cropped_images = []
 
         for item in valid_foods:
             task_name, conf, (x1, y1, x2, y2) = item['name'], item['score'], item['box']
-            box_area = (x2 - x1) * (y2 - y1)
-            size_label = get_portion_size(box_area, plate_area)
+
+            size_label = get_portion_size((x1, y1, x2, y2), plate_box)
 
             multiplier = SIZE_MULTIPLIERS[size_label]
             final_price = BASE_PRICES[task_name] * multiplier
             total_bill += final_price
 
-            ratio_percentage = (box_area / plate_area) * 100
-            receipt_lines.append(f"{task_name.capitalize()} ({size_label}, {ratio_percentage:.1f}%): {CURRENCY}{final_price:.2f}")
+            receipt_lines.append(f"{task_name.capitalize()} ({size_label}): {CURRENCY}{final_price:.2f}")
 
-            # ✂️ Clean Crop Logic
-            crop_y1, crop_y2 = max(0, y1), min(img_clean.shape[0], y2)
-            crop_x1, crop_x2 = max(0, x1), min(img_clean.shape[1], x2)
+            pad_x = int((x2 - x1) * 0.10)
+            pad_y = int((y2 - y1) * 0.10)
+
+            crop_y1 = max(0, y1 - pad_y)
+            crop_y2 = min(img_clean.shape[0], y2 + pad_y)
+            crop_x1 = max(0, x1 - pad_x)
+            crop_x2 = min(img_clean.shape[1], x2 + pad_x)
+
             if crop_y2 > crop_y1 and crop_x2 > crop_x1:
                 cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
                 cropped_images.append((task_name, conf, cropped_part))
 
-            # Draw standard bounding boxes on Display Image
             color = COLORS[task_name]
             rgb = (color[2], color[1], color[0])
             cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
@@ -570,18 +599,13 @@ while True:
             cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)), (x1 + t_size[0], max(y1, 10)), rgb, -1)
             cv2.putText(img_display, label, (x1, max(y1 - 5, 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-        # 1. Display Result Image
         plt.figure(figsize=(10, 10))
         plt.imshow(img_display)
         plt.axis('off')
         plt.title(f"{selected_name} Total: {CURRENCY}{total_bill:.2f}", fontsize=18, color='green', fontweight='bold')
         plt.show()
 
-        # 2. Display Cropped Images Side-by-Side
         if cropped_images:
-            print("\n" + "✂️ "*15)
-            print(f" EXTRACTED CROP ITEMS ({selected_name})")
-            print("✂️ "*15)
             num_crops = min(len(cropped_images), 8)
             fig, axes = plt.subplots(1, num_crops, figsize=(3 * num_crops, 3))
             if num_crops == 1: axes = [axes]
@@ -592,7 +616,6 @@ while True:
                 axes[i].set_title(f"{c_name.upper()}\nConf: {c_score:.2f}", color='blue', fontweight='bold')
             plt.show()
 
-        # 3. Print Receipt
         print(f"\n🧾 Smart Receipt [{selected_name}]:")
         for line in receipt_lines:
             print(f"   {line}")

@@ -9,6 +9,7 @@ import streamlit as st
 import cv2
 import numpy as np
 import os
+import math
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -363,9 +364,7 @@ section[data-testid="stSidebar"] .stCheckbox label span {
 # ==============================================================================
 # Constants
 # ==============================================================================
-# All three models share the same class order because Faster R-CNN was trained
-# using YOLO-format label files (class IDs: 0=meat, 1=rice, 2=vege, 3=plate).
-CLASSES = ['meat', 'rice', 'vege', 'plate']
+CLASSES = ['meat', 'plate', 'rice', 'vege']
 BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
 CURRENCY = "RM"
 SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
@@ -386,14 +385,36 @@ FRCNN_PATH = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
-def get_portion_size(box_area: float, plate_area: float) -> str:
-    """Determine portion size based on box-to-plate area ratio."""
+def get_portion_size(food_box, plate_box):
+    """Determine portion size using intersection area vs elliptical plate area."""
+    if plate_box is None:
+        return 'M'
+
+    fx1, fy1, fx2, fy2 = food_box
+    px1, py1, px2, py2 = plate_box
+
+    ix1 = max(fx1, px1)
+    iy1 = max(fy1, py1)
+    ix2 = min(fx2, px2)
+    iy2 = min(fy2, py2)
+
+    if ix2 < ix1 or iy2 < iy1:
+        intersect_area = (fx2 - fx1) * (fy2 - fy1)
+    else:
+        intersect_area = (ix2 - ix1) * (iy2 - iy1)
+
+    plate_w = px2 - px1
+    plate_h = py2 - py1
+    plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
+
     if plate_area <= 0:
         return 'M'
-    ratio = box_area / plate_area
-    if ratio < (2 / 9):
+
+    ratio = intersect_area / plate_area
+
+    if ratio < 0.15:
         return 'S'
-    elif ratio > (4 / 9):
+    elif ratio > 0.35:
         return 'L'
     else:
         return 'M'
@@ -448,7 +469,7 @@ def run_ultralytics(model, img_rgb):
     plates : list[dict]
         All detected plates (box, score), sorted by x-coordinate.
     """
-    results = model.predict(img_rgb, conf=0.25, verbose=False)
+    results = model.predict(img_rgb, conf=0.25, iou=0.45, verbose=False)
     valid_foods = []
     plates = []
 
@@ -457,6 +478,10 @@ def run_ultralytics(model, img_rgb):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
+
+            if cls_id >= len(CLASSES):
+                continue
+
             task_name = CLASSES[cls_id]
 
             if task_name == 'plate':
@@ -492,9 +517,14 @@ def run_frcnn(model, img_rgb):
 
     CONF_THRESH = 0.5
     mask = predictions['scores'] > CONF_THRESH
-    boxes = predictions['boxes'][mask].cpu().numpy()
-    labels = predictions['labels'][mask].cpu().numpy()
-    scores = predictions['scores'][mask].cpu().numpy()
+    boxes = predictions['boxes'][mask]
+    labels = predictions['labels'][mask]
+    scores = predictions['scores'][mask]
+
+    keep = torchvision.ops.nms(boxes, scores, iou_threshold=0.3)
+    boxes = boxes[keep].cpu().numpy()
+    labels = labels[keep].cpu().numpy()
+    scores = scores[keep].cpu().numpy()
 
     valid_foods = []
     plates = []
@@ -502,6 +532,10 @@ def run_frcnn(model, img_rgb):
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = map(int, box)
         cls_id = labels[i] - 1  # Shift for background class
+
+        if cls_id < 0 or cls_id >= len(CLASSES):
+            continue
+
         task_name = CLASSES[cls_id]
         conf = scores[i]
 
@@ -617,17 +651,17 @@ def draw_results(img_rgb, valid_foods, plates, plate_assignments):
 
         plate_num = plate_idx + 1 if plate_idx >= 0 else 1
 
-        # Determine plate area for portion sizing
+        # Determine plate box and area for portion sizing
         if 0 <= plate_idx < len(plates):
             px1, py1, px2, py2 = plates[plate_idx]['box']
-            plate_area = max(1, (px2 - px1) * (py2 - py1))
+            current_plate_box = (px1, py1, px2, py2)
         else:
             # No plate detected — estimate from food boundaries
             min_x = min(d['box'][0] for d in foods)
             min_y = min(d['box'][1] for d in foods)
             max_x = max(d['box'][2] for d in foods)
             max_y = max(d['box'][3] for d in foods)
-            plate_area = max(1, (max_x - min_x) * (max_y - min_y))
+            current_plate_box = (min_x, min_y, max_x, max_y)
             cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y),
                           (255, 255, 255), 2, cv2.LINE_AA)
 
@@ -638,24 +672,25 @@ def draw_results(img_rgb, valid_foods, plates, plate_assignments):
             task_name = item['name']
             conf = item['score']
             x1, y1, x2, y2 = item['box']
-            box_area = (x2 - x1) * (y2 - y1)
-            size_label = get_portion_size(box_area, plate_area)
+            size_label = get_portion_size((x1, y1, x2, y2), current_plate_box)
 
             multiplier = SIZE_MULTIPLIERS[size_label]
             final_price = BASE_PRICES[task_name] * multiplier
             plate_total += final_price
 
-            ratio_percentage = (box_area / plate_area) * 100
             receipt_lines.append({
                 'item': task_name.capitalize(),
                 'size': size_label,
-                'ratio': ratio_percentage,
                 'price': final_price,
             })
 
-            # Crop
-            crop_y1, crop_y2 = max(0, y1), min(img_clean.shape[0], y2)
-            crop_x1, crop_x2 = max(0, x1), min(img_clean.shape[1], x2)
+            # Crop with 10% padding
+            pad_x = int((x2 - x1) * 0.10)
+            pad_y = int((y2 - y1) * 0.10)
+            crop_y1 = max(0, y1 - pad_y)
+            crop_y2 = min(img_clean.shape[0], y2 + pad_y)
+            crop_x1 = max(0, x1 - pad_x)
+            crop_x2 = min(img_clean.shape[1], x2 + pad_x)
             if crop_y2 > crop_y1 and crop_x2 > crop_x1:
                 cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
                 all_cropped.append((task_name, conf, cropped_part))
