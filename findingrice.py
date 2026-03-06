@@ -330,297 +330,994 @@ torch.save(model.state_dict(), '/content/faster_rcnn_mixed_rice.pth')
 print("✅ Training Complete! Model saved as faster_rcnn_mixed_rice.pth")
 
 # ==============================================================================
-# ⚖️ Tri-Model Smart Cashier System
-# Models: YOLO (1-stage), RT-DETR (Transformer), Faster R-CNN (2-stage)
+# 🚀 Module 4: Smart Checkout Inference System
+#    (Economy Rice Smart Checkout — Multi-Model Support)
 # ==============================================================================
-import cv2
-import matplotlib.pyplot as plt
+#
+# Supports all 3 trained models:
+#   - YOLOv8       → model_mixed_rice.pt
+#   - RT-DETR      → model_rtdetr_mixed_rice.pt
+#   - Faster R-CNN → faster_rcnn_mixed_rice.pth
+#
+# Features:
+#   - Auto-detect model type from file extension / architecture
+#   - Smart portion size estimation (S / M / L) based on bbox area
+#   - Dynamic pricing with quantity multipliers
+#   - Visual receipt overlay on image
+#   - Printable text receipt
+#   - Batch inference on folder of images
+#   - Confidence filtering & NMS deduplication
+#   - Side-by-side comparison of multiple models
+#   - Cropping each detected food item for visual inspection
+# ==============================================================================
+
+# ── 1. Environment Setup ─────────────────────────────────────────────────────
+
+print("🚀 Setting up Smart Checkout environment...")
+
 import os
+import cv2
+import time
 import torch
+import numpy as np
+import math
+import glob
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from pathlib import Path
+from datetime import datetime
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Tuple
+
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-import numpy as np
-from ultralytics import YOLO, RTDETR
-from google.colab import files
-import math
+from IPython.display import display, HTML, Image as IPyImage
+from google.colab import files as colab_files
 
-print(f"\n{'='*60}")
-print("⚖️ Starting Ultimate Tri-Model Smart Cashier System")
-print(f"{'='*60}")
+# ── 2. Configuration ─────────────────────────────────────────────────────────
 
-BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
-CURRENCY = "RM"
-SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
+CONFIG = {
+    # ── Class definitions ─────────────────────────────────────────────────
+    # MUST match the class order used during training
+    "classes": ["meat", "plate", "rice", "vege"],
 
-CLASSES = ['meat', 'plate', 'rice', 'vege']
-COLORS = {'rice': (0, 255, 0), 'vege': (255, 0, 0), 'meat': (0, 0, 255), 'plate': (0, 255, 255)}
+    # ── Pricing (RM) ──────────────────────────────────────────────────────
+    "currency": "RM",
+    "base_prices": {
+        "meat": 4.00,
+        "rice": 1.50,
+        "vege": 2.00,
+        "plate": 0.00,   # plate is not charged
+    },
+    "size_multipliers": {
+        "S": 0.7,
+        "M": 1.0,
+        "L": 1.5,
+    },
 
-def get_portion_size(food_box, plate_box):
-    if plate_box is None:
-        return 'M'
+    # ── Size thresholds ───────────────────────────────────────────────────
+    # Portion size is determined by bbox area as a fraction of total image area
+    # These percentages define the boundaries between S / M / L
+    "size_thresholds": {
+        "small_max":  0.04,   # bbox area < 4% of image → Small
+        "medium_max": 0.10,   # bbox area < 10% → Medium, >= 10% → Large
+    },
 
-    fx1, fy1, fx2, fy2 = food_box
-    px1, py1, px2, py2 = plate_box
+    # ── Detection settings ────────────────────────────────────────────────
+    "confidence_threshold": 0.40,   # minimum confidence to accept
+    "iou_threshold":        0.45,   # NMS IoU threshold for deduplication
+    "imgsz":                640,
 
-    ix1 = max(fx1, px1)
-    iy1 = max(fy1, py1)
-    ix2 = min(fx2, px2)
-    iy2 = min(fy2, py2)
+    # ── Visualization ─────────────────────────────────────────────────────
+    "colors": {
+        "meat":  (0, 0, 255),     # red
+        "rice":  (0, 255, 0),     # green
+        "vege":  (255, 165, 0),   # orange
+        "plate": (255, 255, 0),   # cyan
+    },
+    "font_scale":     0.7,
+    "box_thickness":  2,
+    "receipt_width":  400,   # pixels for receipt panel
 
-    if ix2 < ix1 or iy2 < iy1:
-        intersect_area = (fx2 - fx1) * (fy2 - fy1)
+    # ── Cropping settings ─────────────────────────────────────────────────
+    "crop_padding": 0.10,   # 10% padding around each detected food item
+
+    # ── Model paths (update to match your trained files) ──────────────────
+    "yolo_model":      "/content/model_mixed_rice.pt",
+    "rtdetr_model":    "/content/model_rtdetr_mixed_rice.pt",
+    "frcnn_model":     "/content/faster_rcnn_mixed_rice.pth",
+    "frcnn_num_classes": 5,   # 4 classes + 1 background
+    "frcnn_backbone":    "resnet50",
+}
+
+
+# ── 3. Data Classes ──────────────────────────────────────────────────────────
+
+@dataclass
+class Detection:
+    """Single detected food item."""
+    class_name: str
+    confidence: float
+    bbox: Tuple[int, int, int, int]   # (x1, y1, x2, y2)
+    area_fraction: float              # bbox area / image area
+    size: str                         # S / M / L
+    price: float                      # after size multiplier
+    cropped_image: Optional[np.ndarray] = None   # cropped region of the detected food
+
+
+@dataclass
+class CheckoutResult:
+    """Full checkout result for one image."""
+    image_path: str
+    model_name: str
+    detections: List[Detection] = field(default_factory=list)
+    total_price: float = 0.0
+    inference_time_ms: float = 0.0
+    annotated_image: Optional[np.ndarray] = None
+
+    @property
+    def item_summary(self) -> Dict[str, int]:
+        """Count of each detected item."""
+        return dict(Counter(d.class_name for d in self.detections))
+
+    @property
+    def billable_items(self) -> List[Detection]:
+        """Items that have a price > 0 (excludes plate)."""
+        return [d for d in self.detections if d.price > 0]
+
+    @property
+    def cropped_images(self) -> List[Tuple[str, float, np.ndarray]]:
+        """List of (class_name, confidence, cropped_image) for all food detections with crops."""
+        return [
+            (d.class_name, d.confidence, d.cropped_image)
+            for d in self.detections
+            if d.cropped_image is not None and d.class_name != "plate"
+        ]
+
+
+# ── 4. Size Estimator ────────────────────────────────────────────────────────
+
+def estimate_size(area_fraction: float) -> str:
+    """Estimate portion size from bbox area as fraction of image."""
+    thresholds = CONFIG["size_thresholds"]
+    if area_fraction < thresholds["small_max"]:
+        return "S"
+    elif area_fraction < thresholds["medium_max"]:
+        return "M"
     else:
-        intersect_area = (ix2 - ix1) * (iy2 - iy1)
+        return "L"
 
-    plate_w = px2 - px1
-    plate_h = py2 - py1
-    plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
 
-    if plate_area <= 0:
-        return 'M'
+def calculate_price(class_name: str, size: str) -> float:
+    """Calculate price for a single item based on class and size."""
+    base = CONFIG["base_prices"].get(class_name, 0.0)
+    mult = CONFIG["size_multipliers"].get(size, 1.0)
+    return round(base * mult, 2)
 
-    ratio = intersect_area / plate_area
 
-    if ratio < 0.15:
-        return 'S'
-    elif ratio > 0.35:
-        return 'L'
-    else:
-        return 'M'
+# ── 5. Model Loaders ─────────────────────────────────────────────────────────
 
-print("🔄 Loading the AI models into memory...")
+class YOLODetector:
+    """Wrapper for YOLOv8 / RT-DETR (ultralytics API)."""
 
-yolo_path = '/content/model_mixed_rice.pt'
-yolo_model = YOLO(yolo_path) if os.path.exists(yolo_path) else None
-print("✅ YOLO Model loaded!" if yolo_model else "❌ YOLO Model not found.")
+    def __init__(self, model_path: str, model_type: str = "yolo"):
+        from ultralytics import YOLO, RTDETR
+        self.model_type = model_type
+        if model_type == "rtdetr":
+            self.model = RTDETR(model_path)
+            self.name = "RT-DETR"
+        else:
+            self.model = YOLO(model_path)
+            self.name = "YOLOv8"
+        print(f"  ✅ Loaded {self.name} from {model_path}")
 
-rtdetr_path = '/content/model_rtdetr_mixed_rice.pt'
-rtdetr_model = RTDETR(rtdetr_path) if os.path.exists(rtdetr_path) else None
-print("✅ RT-DETR Model loaded!" if rtdetr_model else "❌ RT-DETR Model not found.")
+    def predict(self, image: np.ndarray) -> List[Dict]:
+        results = self.model.predict(
+            source=image,
+            conf=CONFIG["confidence_threshold"],
+            iou=CONFIG["iou_threshold"],
+            imgsz=CONFIG["imgsz"],
+            verbose=False,
+        )
+        detections = []
+        if results and len(results) > 0:
+            result = results[0]
+            for box in result.boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                cls_name = CONFIG["classes"][cls_id] if cls_id < len(CONFIG["classes"]) else f"class_{cls_id}"
+                detections.append({
+                    "class_name": cls_name,
+                    "confidence": conf,
+                    "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                })
+        return detections
 
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-frcnn_path = '/content/faster_rcnn_mixed_rice.pth'
-frcnn_model = None
-if os.path.exists(frcnn_path):
-    frcnn_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
-    in_features = frcnn_model.roi_heads.box_predictor.cls_score.in_features
-    frcnn_model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(CLASSES) + 1)
-    frcnn_model.load_state_dict(torch.load(frcnn_path, map_location=device))
-    frcnn_model.to(device)
-    frcnn_model.eval()
-    print("✅ Faster R-CNN Model loaded!")
-else:
-    print("❌ Faster R-CNN Model not found.")
 
-current_image_path = None
+class FasterRCNNDetector:
+    """Wrapper for Faster R-CNN (torchvision)."""
 
-while True:
-    print("\n" + "="*50)
-    print("Please select the AI algorithm for pricing:")
-    print("1: YOLO")
-    print("2: RT-DETR")
-    print("3: Faster R-CNN")
-    print("4: Exit System")
+    def __init__(self, model_path: str):
+        self.name = "Faster R-CNN"
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    choice = input("👉 Enter your choice (1/2/3/4): ").strip()
+        # Build model architecture
+        num_classes = CONFIG["frcnn_num_classes"]
+        backbone = CONFIG["frcnn_backbone"]
+        if backbone == "mobilenet_v3":
+            self.model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_fpn(weights=None)
+        else:
+            self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
 
-    if choice == '4':
-        print("👋 Exiting...")
-        if current_image_path and os.path.exists(current_image_path):
-            os.remove(current_image_path)
-        break
+        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
+        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
-    if choice == '1' and not yolo_model:
-        print("⚠️ YOLO model is not loaded!")
-        continue
-    elif choice == '2' and not rtdetr_model:
-        print("⚠️ RT-DETR model is not loaded!")
-        continue
-    elif choice == '3' and not frcnn_model:
-        print("⚠️ Faster R-CNN model is not loaded!")
-        continue
-    elif choice not in ['1', '2', '3']:
-        print("⚠️ Invalid input.")
-        continue
+        # Load weights
+        state_dict = torch.load(model_path, map_location=self.device)
+        self.model.load_state_dict(state_dict)
+        self.model.to(self.device)
+        self.model.eval()
+        print(f"  ✅ Loaded Faster R-CNN from {model_path}")
 
-    model_names = {'1': 'YOLO', '2': 'RT-DETR', '3': 'Faster R-CNN'}
-    selected_name = model_names[choice]
+    @torch.no_grad()
+    def predict(self, image: np.ndarray) -> List[Dict]:
+        img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if len(image.shape) == 3 else image
+        img_tensor = torch.as_tensor(img_rgb, dtype=torch.float32).permute(2, 0, 1) / 255.0
+        img_tensor = img_tensor.unsqueeze(0).to(self.device)
 
-    if choice == '1':
-        active_model = yolo_model
-    elif choice == '2':
-        active_model = rtdetr_model
-    else:
-        active_model = frcnn_model
+        outputs = self.model(img_tensor)[0]
 
-    if current_image_path and os.path.exists(current_image_path):
-        reuse = input(f"🔄 Reuse the previous image for [{selected_name}] testing? (y/n, default y): ").strip().lower()
-        if reuse == 'n':
-            os.remove(current_image_path)
-            current_image_path = None
+        detections = []
+        boxes  = outputs["boxes"].cpu().numpy()
+        scores = outputs["scores"].cpu().numpy()
+        labels = outputs["labels"].cpu().numpy()
 
-    if not current_image_path:
-        print(f"\n📸 Please upload a picture...")
-        try:
-            uploaded = files.upload()
-            if not uploaded:
-                print("⚠️ No image uploaded.")
+        for box, score, label in zip(boxes, scores, labels):
+            if score < CONFIG["confidence_threshold"]:
                 continue
-            current_image_path = list(uploaded.keys())[0]
-        except Exception as e:
-            print(f"❌ Upload error: {e}")
-            continue
+            if label == 0:
+                continue  # skip background
+
+            cls_idx = label - 1  # Faster R-CNN has +1 offset for background
+            cls_name = CONFIG["classes"][cls_idx] if cls_idx < len(CONFIG["classes"]) else f"class_{label}"
+
+            x1, y1, x2, y2 = box.astype(int)
+            detections.append({
+                "class_name": cls_name,
+                "confidence": float(score),
+                "bbox": (int(x1), int(y1), int(x2), int(y2)),
+            })
+
+        # Manual NMS (torchvision model may already do this, but just in case)
+        detections = _nms_filter(detections, CONFIG["iou_threshold"])
+        return detections
+
+
+def _nms_filter(detections: List[Dict], iou_thresh: float) -> List[Dict]:
+    """Simple class-aware NMS to remove duplicate boxes."""
+    if len(detections) <= 1:
+        return detections
+
+    # Group by class
+    by_class = defaultdict(list)
+    for d in detections:
+        by_class[d["class_name"]].append(d)
+
+    filtered = []
+    for cls_name, dets in by_class.items():
+        dets.sort(key=lambda x: x["confidence"], reverse=True)
+        keep = []
+        for det in dets:
+            overlap = False
+            for kept in keep:
+                iou = _compute_iou(det["bbox"], kept["bbox"])
+                if iou > iou_thresh:
+                    overlap = True
+                    break
+            if not overlap:
+                keep.append(det)
+        filtered.extend(keep)
+
+    return filtered
+
+
+def _compute_iou(box1, box2) -> float:
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0.0
+
+
+def load_detector(model_path: str) -> object:
+    """Auto-detect model type and return appropriate detector."""
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"❌ Model not found: {model_path}")
+
+    ext = Path(model_path).suffix.lower()
+    name_lower = Path(model_path).stem.lower()
+
+    if ext == ".pth":
+        return FasterRCNNDetector(model_path)
+    elif "rtdetr" in name_lower:
+        return YOLODetector(model_path, model_type="rtdetr")
+    else:
+        return YOLODetector(model_path, model_type="yolo")
+
+
+# ── 6. Cropping Helper ───────────────────────────────────────────────────────
+
+def _crop_detection(image: np.ndarray, bbox: Tuple[int, int, int, int],
+                    padding: float = None) -> Optional[np.ndarray]:
+    """Crop a detected food item from the image with padding.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        The original (clean) image in BGR or RGB format.
+    bbox : tuple
+        (x1, y1, x2, y2) bounding box coordinates.
+    padding : float, optional
+        Fractional padding around the bbox (default from CONFIG).
+
+    Returns
+    -------
+    np.ndarray or None
+        Cropped image region, or None if crop is invalid.
+    """
+    if padding is None:
+        padding = CONFIG["crop_padding"]
+
+    x1, y1, x2, y2 = bbox
+    pad_x = int((x2 - x1) * padding)
+    pad_y = int((y2 - y1) * padding)
+
+    crop_y1 = max(0, y1 - pad_y)
+    crop_y2 = min(image.shape[0], y2 + pad_y)
+    crop_x1 = max(0, x1 - pad_x)
+    crop_x2 = min(image.shape[1], x2 + pad_x)
+
+    if crop_y2 > crop_y1 and crop_x2 > crop_x1:
+        return image[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+    return None
+
+
+# ── 7. Checkout Engine ───────────────────────────────────────────────────────
+
+def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
+    """
+    Run detection on a single image and compute the checkout.
+    Returns a CheckoutResult with detections, prices, cropped images, and annotated image.
+    """
+    image = cv2.imread(image_path)
+    if image is None:
+        raise IOError(f"❌ Cannot read image: {image_path}")
+
+    img_h, img_w = image.shape[:2]
+    img_area = img_h * img_w
+
+    # Keep a clean copy for cropping (before annotations are drawn)
+    img_clean = image.copy()
+
+    # Run inference
+    t0 = time.time()
+    raw_detections = detector.predict(image)
+    inference_ms = (time.time() - t0) * 1000
+
+    # Build Detection objects with size + price + cropped image
+    detections = []
+    for raw in raw_detections:
+        x1, y1, x2, y2 = raw["bbox"]
+        bbox_area = (x2 - x1) * (y2 - y1)
+        area_frac = bbox_area / img_area
+
+        size  = estimate_size(area_frac)
+        price = calculate_price(raw["class_name"], size)
+
+        # Crop the detected food item (skip plate for cropping display)
+        cropped = None
+        if raw["class_name"] != "plate":
+            cropped = _crop_detection(img_clean, raw["bbox"])
+
+        detections.append(Detection(
+            class_name=raw["class_name"],
+            confidence=raw["confidence"],
+            bbox=raw["bbox"],
+            area_fraction=area_frac,
+            size=size,
+            price=price,
+            cropped_image=cropped,
+        ))
+
+    # Sort: plate first, then by class name
+    detections.sort(key=lambda d: (d.class_name != "plate", d.class_name, -d.confidence))
+
+    total = sum(d.price for d in detections)
+
+    # Annotate image
+    annotated = _draw_detections(image.copy(), detections)
+
+    # Build receipt panel
+    receipt_panel = _draw_receipt(detections, total, detector.name, inference_ms, img_h)
+
+    # Combine image + receipt side by side
+    combined = _combine_image_receipt(annotated, receipt_panel)
+
+    result = CheckoutResult(
+        image_path=image_path,
+        model_name=detector.name,
+        detections=detections,
+        total_price=total,
+        inference_time_ms=inference_ms,
+        annotated_image=combined,
+    )
+
+    if verbose:
+        _print_receipt(result)
+
+    return result
+
+
+# ── 8. Visualization ─────────────────────────────────────────────────────────
+
+def _draw_detections(image: np.ndarray, detections: List[Detection]) -> np.ndarray:
+    """Draw bounding boxes and labels on the image."""
+    for det in detections:
+        x1, y1, x2, y2 = det.bbox
+        color = CONFIG["colors"].get(det.class_name, (200, 200, 200))
+        thickness = CONFIG["box_thickness"]
+
+        # Draw box
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
+
+        # Label with class, size, confidence, price
+        currency = CONFIG["currency"]
+        if det.price > 0:
+            label = f"{det.class_name} ({det.size}) {det.confidence:.0%} {currency}{det.price:.2f}"
+        else:
+            label = f"{det.class_name} {det.confidence:.0%}"
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = CONFIG["font_scale"]
+        (tw, th), baseline = cv2.getTextSize(label, font, scale, 1)
+
+        # Label background
+        cv2.rectangle(image, (x1, y1 - th - 10), (x1 + tw + 6, y1), color, -1)
+        cv2.putText(image, label, (x1 + 3, y1 - 5), font, scale, (255, 255, 255), 2)
+
+    return image
+
+
+def _draw_receipt(detections: List[Detection], total: float,
+                  model_name: str, inference_ms: float, img_height: int) -> np.ndarray:
+    """Create a receipt panel as a numpy image."""
+    w = CONFIG["receipt_width"]
+    h = max(img_height, 500)
+    receipt = np.ones((h, w, 3), dtype=np.uint8) * 245  # light gray bg
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    currency = CONFIG["currency"]
+    y = 30
+    line_h = 28
+
+    def put(text, y_pos, scale=0.55, color=(30, 30, 30), thickness=1):
+        cv2.putText(receipt, text, (15, y_pos), font, scale, color, thickness)
+        return y_pos + line_h
+
+    # Header
+    y = put("================================", y, 0.45, (100, 100, 100))
+    y = put("   ECONOMY RICE CHECKOUT", y, 0.65, (0, 0, 0), 2)
+    y = put("================================", y, 0.45, (100, 100, 100))
+    y = put(f"  Model: {model_name}", y, 0.45, (80, 80, 80))
+    y = put(f"  Time : {datetime.now().strftime('%Y-%m-%d %H:%M')}", y, 0.45, (80, 80, 80))
+    y = put(f"  Speed: {inference_ms:.0f}ms", y, 0.45, (80, 80, 80))
+    y = put("--------------------------------", y, 0.45, (150, 150, 150))
+
+    # Items
+    billable = [d for d in detections if d.price > 0]
+    non_billable = [d for d in detections if d.price == 0]
+
+    if billable:
+        y = put("  ITEM          SIZE  PRICE", y, 0.45, (60, 60, 60))
+        y = put("  ----          ----  -----", y, 0.40, (150, 150, 150))
+
+        # Group by (class, size) for cleaner receipt
+        grouped = defaultdict(lambda: {"count": 0, "unit_price": 0.0})
+        for d in billable:
+            key = (d.class_name, d.size)
+            grouped[key]["count"] += 1
+            grouped[key]["unit_price"] = d.price
+
+        for (cls, size), info in sorted(grouped.items()):
+            count = info["count"]
+            unit  = info["unit_price"]
+            line_total = unit * count
+            qty_str = f"x{count}" if count > 1 else "  "
+            y = put(f"  {cls:<12s}  {size}  {currency}{unit:.2f} {qty_str} = {currency}{line_total:.2f}", y, 0.42)
+    else:
+        y = put("  (No billable items detected)", y, 0.45, (150, 50, 50))
+
+    if non_billable:
+        y += 5
+        y = put(f"  Plate(s) detected: {len(non_billable)}", y, 0.40, (120, 120, 120))
+
+    # Total
+    y += 10
+    y = put("================================", y, 0.45, (100, 100, 100))
+    y = put(f"  TOTAL: {currency}{total:.2f}", y, 0.7, (0, 0, 180), 2)
+    y = put("================================", y, 0.45, (100, 100, 100))
+
+    # Item count summary
+    y += 5
+    summary = Counter(d.class_name for d in detections)
+    y = put(f"  Items: {dict(summary)}", y, 0.40, (100, 100, 100))
+
+    # Footer
+    y += 15
+    y = put("  Thank you! Terima kasih!", y, 0.45, (80, 80, 80))
+
+    return receipt
+
+
+def _combine_image_receipt(image: np.ndarray, receipt: np.ndarray) -> np.ndarray:
+    """Place image and receipt side by side, matching heights."""
+    h1, h2 = image.shape[0], receipt.shape[0]
+    target_h = max(h1, h2)
+
+    if h1 < target_h:
+        pad = np.ones((target_h - h1, image.shape[1], 3), dtype=np.uint8) * 220
+        image = np.vstack([image, pad])
+    if h2 < target_h:
+        pad = np.ones((target_h - h2, receipt.shape[1], 3), dtype=np.uint8) * 245
+        receipt = np.vstack([receipt, pad])
+
+    return np.hstack([image, receipt])
+
+
+def _print_receipt(result: CheckoutResult) -> None:
+    """Print a clean text receipt to stdout."""
+    c = CONFIG["currency"]
+    print(f"\n{'='*50}")
+    print(f"  🧾 ECONOMY RICE SMART CHECKOUT")
+    print(f"{'='*50}")
+    print(f"  Model    : {result.model_name}")
+    print(f"  Image    : {os.path.basename(result.image_path)}")
+    print(f"  Speed    : {result.inference_time_ms:.0f} ms")
+    print(f"{'─'*50}")
+
+    grouped = defaultdict(lambda: {"count": 0, "unit_price": 0.0, "size": ""})
+    for d in result.billable_items:
+        key = (d.class_name, d.size)
+        grouped[key]["count"] += 1
+        grouped[key]["unit_price"] = d.price
+        grouped[key]["size"] = d.size
+
+    if grouped:
+        print(f"  {'Item':<12s}  {'Size':>4s}  {'Qty':>3s}  {'Unit':>7s}  {'Total':>8s}")
+        print(f"  {'─'*12}  {'─'*4}  {'─'*3}  {'─'*7}  {'─'*8}")
+        for (cls, size), info in sorted(grouped.items()):
+            line_total = info["unit_price"] * info["count"]
+            print(f"  {cls:<12s}  {size:>4s}  {info['count']:>3d}  {c}{info['unit_price']:>5.2f}  {c}{line_total:>6.2f}")
+    else:
+        print("  (No billable items detected)")
+
+    plate_count = sum(1 for d in result.detections if d.class_name == "plate")
+    if plate_count:
+        print(f"\n  Plate(s): {plate_count} detected")
+
+    # Cropped items summary
+    crops = result.cropped_images
+    if crops:
+        print(f"  🔍 Cropped food items: {len(crops)}")
+
+    print(f"{'─'*50}")
+    print(f"  💰 TOTAL: {c}{result.total_price:.2f}")
+    print(f"{'='*50}\n")
+
+
+# ── 9. Display Helpers ────────────────────────────────────────────────────────
+
+def show_result(result: CheckoutResult, width: int = 900) -> None:
+    """Display the annotated image + receipt in Colab, plus cropped food items."""
+    if result.annotated_image is None:
+        print("  ⚠️  No annotated image to display")
+        return
+
+    # Save temporary file for display
+    tmp_path = "/content/_checkout_result.jpg"
+    cv2.imwrite(tmp_path, result.annotated_image)
 
     try:
-        img = cv2.imread(current_image_path)
-        if img is None:
-            print(f"❌ Error: Could not read image.")
-            current_image_path = None
-            continue
+        display(IPyImage(filename=tmp_path, width=width))
+    except Exception:
+        print(f"  (Image saved at {tmp_path})")
 
-        img_display = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_clean = img_display.copy()
-
-        valid_foods = []
-        plate_box = None
-        highest_plate_conf = 0
-
-        if choice in ['1', '2']:
-            results = active_model.predict(img_display, conf=0.25, iou=0.45, verbose=False)
-            for r in results:
-                for box in r.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf[0])
-                    cls_id = int(box.cls[0])
-
-                    if cls_id >= len(CLASSES):
-                        continue
-
-                    task_name = CLASSES[cls_id]
-
-                    if task_name == 'plate':
-                        if conf > highest_plate_conf:
-                            highest_plate_conf = conf
-                            plate_box = (x1, y1, x2, y2)
-                    else:
-                        valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
-
-        elif choice == '3':
-            img_tensor = torch.as_tensor(img_display, dtype=torch.float32).permute(2, 0, 1) / 255.0
-            img_tensor = img_tensor.unsqueeze(0).to(device)
-
-            with torch.no_grad():
-                predictions = active_model(img_tensor)[0]
-
-            CONF_THRESH = 0.5
-            mask = predictions['scores'] > CONF_THRESH
-            boxes = predictions['boxes'][mask]
-            labels = predictions['labels'][mask]
-            scores = predictions['scores'][mask]
-
-            keep = torchvision.ops.nms(boxes, scores, iou_threshold=0.3)
-            boxes = boxes[keep].cpu().numpy()
-            labels = labels[keep].cpu().numpy()
-            scores = scores[keep].cpu().numpy()
-
-            for i, box in enumerate(boxes):
-                x1, y1, x2, y2 = map(int, box)
-                cls_id = labels[i] - 1
-
-                if cls_id < 0 or cls_id >= len(CLASSES):
-                    continue
-
-                task_name = CLASSES[cls_id]
-                conf = scores[i]
-
-                if task_name == 'plate':
-                    if conf > highest_plate_conf:
-                        highest_plate_conf = conf
-                        plate_box = (x1, y1, x2, y2)
-                else:
-                    valid_foods.append({'name': task_name, 'box': (x1, y1, x2, y2), 'score': conf})
-
-        if not valid_foods:
-            print(f"⚠️ [{selected_name}] could not detect any food.")
-            os.remove(current_image_path)
-            current_image_path = None
-            continue
-
-        if plate_box is not None:
-            px1, py1, px2, py2 = plate_box
-            plate_w = px2 - px1
-            plate_h = py2 - py1
-            plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
-            cv2.rectangle(img_display, (px1, py1), (px2, py2), COLORS['plate'], 3)
-            cv2.putText(img_display, f"Plate ({highest_plate_conf:.2f})", (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLORS['plate'], 2)
-        else:
-            print("⚠️ Plate not detected. Estimating...")
-            min_x = min([d['box'][0] for d in valid_foods])
-            min_y = min([d['box'][1] for d in valid_foods])
-            max_x = max([d['box'][2] for d in valid_foods])
-            max_y = max([d['box'][3] for d in valid_foods])
-            plate_box = (min_x, min_y, max_x, max_y)
-            plate_area = math.pi * ((max_x - min_x) / 2) * ((max_y - min_y) / 2)
-            cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y), (255, 255, 255), 2, cv2.LINE_AA)
-
-        total_bill = 0.0
-        receipt_lines = []
-        cropped_images = []
-
-        for item in valid_foods:
-            task_name, conf, (x1, y1, x2, y2) = item['name'], item['score'], item['box']
-
-            size_label = get_portion_size((x1, y1, x2, y2), plate_box)
-
-            multiplier = SIZE_MULTIPLIERS[size_label]
-            final_price = BASE_PRICES[task_name] * multiplier
-            total_bill += final_price
-
-            receipt_lines.append(f"{task_name.capitalize()} ({size_label}): {CURRENCY}{final_price:.2f}")
-
-            pad_x = int((x2 - x1) * 0.10)
-            pad_y = int((y2 - y1) * 0.10)
-
-            crop_y1 = max(0, y1 - pad_y)
-            crop_y2 = min(img_clean.shape[0], y2 + pad_y)
-            crop_x1 = max(0, x1 - pad_x)
-            crop_x2 = min(img_clean.shape[1], x2 + pad_x)
-
-            if crop_y2 > crop_y1 and crop_x2 > crop_x1:
-                cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
-                cropped_images.append((task_name, conf, cropped_part))
-
-            color = COLORS[task_name]
-            rgb = (color[2], color[1], color[0])
-            cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
-
-            label = f"{task_name.capitalize()} ({size_label}) {CURRENCY}{final_price:.2f}"
-            t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)), (x1 + t_size[0], max(y1, 10)), rgb, -1)
-            cv2.putText(img_display, label, (x1, max(y1 - 5, 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-        plt.figure(figsize=(10, 10))
-        plt.imshow(img_display)
-        plt.axis('off')
-        plt.title(f"{selected_name} Total: {CURRENCY}{total_bill:.2f}", fontsize=18, color='green', fontweight='bold')
+    # ── Display cropped food items ──
+    crops = result.cropped_images
+    if crops:
+        num_crops = min(len(crops), 8)
+        fig, axes = plt.subplots(1, num_crops, figsize=(3 * num_crops, 3))
+        if num_crops == 1:
+            axes = [axes]
+        for i in range(num_crops):
+            c_name, c_score, c_img = crops[i]
+            # Convert BGR to RGB for matplotlib display
+            if len(c_img.shape) == 3 and c_img.shape[2] == 3:
+                c_img_rgb = cv2.cvtColor(c_img, cv2.COLOR_BGR2RGB)
+            else:
+                c_img_rgb = c_img
+            axes[i].imshow(c_img_rgb)
+            axes[i].axis('off')
+            axes[i].set_title(f"{c_name.upper()}\nConf: {c_score:.2f}", color='blue', fontweight='bold')
+        plt.suptitle("Detected Food Items (Cropped)", fontsize=14, fontweight='bold')
+        plt.tight_layout()
         plt.show()
 
-        if cropped_images:
-            num_crops = min(len(cropped_images), 8)
-            fig, axes = plt.subplots(1, num_crops, figsize=(3 * num_crops, 3))
-            if num_crops == 1: axes = [axes]
-            for i in range(num_crops):
-                c_name, c_score, c_img = cropped_images[i]
-                axes[i].imshow(c_img)
-                axes[i].axis('off')
-                axes[i].set_title(f"{c_name.upper()}\nConf: {c_score:.2f}", color='blue', fontweight='bold')
-            plt.show()
 
-        print(f"\n🧾 Smart Receipt [{selected_name}]:")
-        for line in receipt_lines:
-            print(f"   {line}")
-        print(f"   {'='*35}")
-        print(f"   TOTAL: {CURRENCY}{total_bill:.2f}\n")
+def save_result(result: CheckoutResult, output_dir: str = "/content/checkout_results") -> str:
+    """Save annotated image, receipt, and cropped food items to disk."""
+    os.makedirs(output_dir, exist_ok=True)
+    stem = Path(result.image_path).stem
+    timestamp = datetime.now().strftime("%H%M%S")
+    filename = f"{stem}_{result.model_name.replace(' ', '_')}_{timestamp}.jpg"
+    out_path = os.path.join(output_dir, filename)
 
-    except Exception as e:
-        print(f"❌ An error occurred during execution: {e}")
+    if result.annotated_image is not None:
+        cv2.imwrite(out_path, result.annotated_image)
+        print(f"  💾 Saved → {out_path}")
+
+    # Save cropped food items
+    crops = result.cropped_images
+    if crops:
+        crops_dir = os.path.join(output_dir, f"{stem}_crops")
+        os.makedirs(crops_dir, exist_ok=True)
+        for idx, (c_name, c_score, c_img) in enumerate(crops):
+            crop_filename = f"{idx+1}_{c_name}_{c_score:.2f}.jpg"
+            crop_path = os.path.join(crops_dir, crop_filename)
+            cv2.imwrite(crop_path, c_img)
+        print(f"  🔍 Saved {len(crops)} cropped items → {crops_dir}")
+
+    return out_path
+
+
+# ── 10. Batch Inference ───────────────────────────────────────────────────────
+
+def batch_checkout(image_dir: str, detector, save_dir: str = "/content/checkout_results",
+                   show: bool = True) -> List[CheckoutResult]:
+    """Run checkout on all images in a directory."""
+    IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    images = sorted([
+        os.path.join(image_dir, f)
+        for f in os.listdir(image_dir)
+        if Path(f).suffix.lower() in IMAGE_EXTS
+    ])
+
+    if not images:
+        print(f"  ❌ No images found in {image_dir}")
+        return []
+
+    print(f"\n  📂 Processing {len(images)} images from {image_dir}")
+    print(f"  Model: {detector.name}")
+    print()
+
+    results = []
+    total_revenue = 0.0
+
+    for i, img_path in enumerate(images, 1):
+        print(f"  [{i}/{len(images)}] {os.path.basename(img_path)} ... ", end="")
+        try:
+            result = checkout(img_path, detector, verbose=False)
+            results.append(result)
+            total_revenue += result.total_price
+            save_result(result, save_dir)
+            print(f"✅  {len(result.detections)} items, {CONFIG['currency']}{result.total_price:.2f}")
+
+            if show:
+                show_result(result, width=800)
+        except Exception as e:
+            print(f"❌ {e}")
+
+    print(f"\n  {'='*40}")
+    print(f"  📊 Batch Summary: {len(results)} images processed")
+    print(f"  💰 Total Revenue: {CONFIG['currency']}{total_revenue:.2f}")
+    print(f"  ⚡ Avg Speed: {np.mean([r.inference_time_ms for r in results]):.0f} ms/image")
+    print(f"  {'='*40}\n")
+
+    return results
+
+
+# ── 11. Model Comparison ─────────────────────────────────────────────────────
+
+def compare_models(image_path: str, model_paths: Dict[str, str],
+                   show: bool = True) -> Dict[str, CheckoutResult]:
+    """
+    Run the same image through multiple models and compare results.
+
+    Usage:
+        compare_models("/content/test.jpg", {
+            "YOLOv8":      "/content/model_mixed_rice.pt",
+            "RT-DETR":     "/content/model_rtdetr_mixed_rice.pt",
+            "Faster R-CNN": "/content/faster_rcnn_mixed_rice.pth",
+        })
+    """
+    print(f"\n{'='*60}")
+    print(f"  🔬 Model Comparison: {os.path.basename(image_path)}")
+    print(f"{'='*60}")
+
+    results = {}
+
+    for name, path in model_paths.items():
+        if not os.path.exists(path):
+            print(f"  ⚠️  {name}: model not found at {path}, skipping")
+            continue
+
+        print(f"\n  ── {name} ──")
+        try:
+            detector = load_detector(path)
+            result = checkout(image_path, detector, verbose=True)
+            results[name] = result
+
+            if show:
+                show_result(result, width=800)
+        except Exception as e:
+            print(f"  ❌ {name} failed: {e}")
+
+    # Comparison table
+    if len(results) > 1:
+        c = CONFIG["currency"]
+        print(f"\n  {'='*60}")
+        print(f"  📊 COMPARISON TABLE")
+        print(f"  {'─'*60}")
+        print(f"  {'Model':<16s}  {'Items':>5s}  {'Total':>8s}  {'Speed':>8s}  {'Conf avg':>8s}")
+        print(f"  {'─'*16}  {'─'*5}  {'─'*8}  {'─'*8}  {'─'*8}")
+
+        for name, r in results.items():
+            n_items = len(r.detections)
+            avg_conf = np.mean([d.confidence for d in r.detections]) if r.detections else 0
+            print(f"  {name:<16s}  {n_items:>5d}  {c}{r.total_price:>6.2f}  {r.inference_time_ms:>6.0f}ms  {avg_conf:>7.1%}")
+
+        print(f"  {'='*60}\n")
+
+    return results
+
+
+# ── 12. Upload & Checkout (Interactive — Loop + Model Selection) ──────────────
+
+def _discover_models() -> Dict[str, str]:
+    """Return dict of available models {display_name: path}."""
+    candidates = {
+        "1 - YOLOv8":       CONFIG["yolo_model"],
+        "2 - RT-DETR":      CONFIG["rtdetr_model"],
+        "3 - Faster R-CNN":  CONFIG["frcnn_model"],
+    }
+    available = {}
+    for name, path in candidates.items():
+        if os.path.exists(path):
+            available[name] = path
+    return available
+
+
+def _select_model(available_models: Dict[str, str]) -> Tuple[str, str]:
+    """
+    Prompt user to pick a model.  Returns (display_name, path).
+    If only one model exists it is selected automatically.
+    """
+    names = list(available_models.keys())
+
+    if len(names) == 0:
+        raise FileNotFoundError("❌ No trained model found! Train a model first.")
+
+    if len(names) == 1:
+        print(f"  ℹ️  Only one model available — auto-selected {names[0]}")
+        return names[0], available_models[names[0]]
+
+    print("\n  ┌──────────────────────────────────┐")
+    print("  │      SELECT A MODEL               │")
+    print("  ├──────────────────────────────────┤")
+    for name in names:
+        tag = Path(available_models[name]).name
+        print(f"  │  {name:<16s}  ({tag})")
+    print("  └──────────────────────────────────┘")
+
+    while True:
+        choice = input("  Enter model number (1/2/3): ").strip()
+        for name in names:
+            if choice == name[0]:      # match on the leading digit
+                return name, available_models[name]
+        print("  ⚠️  Invalid choice. Please enter 1, 2, or 3.")
+
+
+def upload_and_checkout() -> List[CheckoutResult]:
+    """
+    Interactive loop — repeatedly upload images and checkout.
+
+    Each iteration you can:
+      • Upload a new photo
+      • Switch between YOLOv8 / RT-DETR / Faster R-CNN  (press m)
+      • Quit  (press q)
+
+    Usage (in Colab):
+        results = upload_and_checkout()
+    """
+    # ── Discover available models ──
+    available = _discover_models()
+    if not available:
+        raise FileNotFoundError("❌ No trained model found! Train a model first.")
+
+    print(f"\n{'='*55}")
+    print("  🛒  ECONOMY RICE SMART CHECKOUT — Interactive Mode")
+    print(f"{'='*55}")
+    print(f"  Available models: {len(available)}")
+    for name, path in available.items():
+        print(f"    • {name}  →  {Path(path).name}")
+
+    # ── Let user pick the first model ──
+    model_name, model_path = _select_model(available)
+    print(f"\n  ⏳ Loading {model_name} ...")
+    detector = load_detector(model_path)
+
+    all_results: List[CheckoutResult] = []
+    round_num = 0
+
+    while True:
+        round_num += 1
+        print(f"\n{'─'*55}")
+        print(f"  📷  Round {round_num}  |  Model: {detector.name}")
+        print(f"{'─'*55}")
+        print("  📤 Upload an image of a food plate ...")
+        print("     (or type  m = switch model,  q = quit)")
+
+        action = input("  Press Enter to upload, or type m/q: ").strip().lower()
+
+        if action == "q":
+            print("\n  👋 Exiting checkout. Thank you!")
+            break
+
+        if action == "m":
+            model_name, model_path = _select_model(available)
+            print(f"  ⏳ Loading {model_name} ...")
+            detector = load_detector(model_path)
+            round_num -= 1          # don't count model switch as a round
+            continue
+
+        # ── Upload image ──
+        try:
+            uploaded = colab_files.upload()
+        except Exception as e:
+            print(f"  ❌ Upload error: {e}")
+            continue
+
+        if not uploaded:
+            print("  ❌ No file uploaded — skipping this round")
+            continue
+
+        filename = list(uploaded.keys())[0]
+        img_path = f"/content/{filename}"
+
+        # ── Run checkout ──
+        print(f"\n  🔍 Running checkout with {detector.name} ...")
+        try:
+            result = checkout(img_path, detector, verbose=True)
+            show_result(result)
+            save_result(result)
+            all_results.append(result)
+        except Exception as e:
+            print(f"  ❌ Checkout failed: {e}")
+            continue
+
+    # ── Session summary ──
+    if all_results:
+        c = CONFIG["currency"]
+        total_revenue = sum(r.total_price for r in all_results)
+        print(f"\n{'='*55}")
+        print(f"  📊 SESSION SUMMARY  ({len(all_results)} images)")
+        print(f"{'─'*55}")
+        for i, r in enumerate(all_results, 1):
+            fname = os.path.basename(r.image_path)
+            print(f"  {i:>3d}. {fname:<25s} [{r.model_name}]  {c}{r.total_price:.2f}")
+        print(f"{'─'*55}")
+        print(f"  💰 GRAND TOTAL: {c}{total_revenue:.2f}")
+        print(f"{'='*55}\n")
+
+    return all_results
+
+
+# ==============================================================================
+# 🏁 QUICK START EXAMPLES
+# ==============================================================================
+
+def demo():
+    """
+    Quick demo — run this after training to test your models.
+    Adjust paths as needed.
+    """
+    print(f"\n{'='*60}")
+    print("  🎯 Smart Checkout Demo")
+    print(f"{'='*60}")
+
+    # Find a test image
+    test_images = []
+    for pattern in ["/content/food_dataset/**/val*/images/*.jpg",
+                    "/content/food_dataset/**/test/images/*.jpg",
+                    "/content/food_dataset/**/train/images/*.jpg"]:
+        found = sorted(glob.glob(pattern, recursive=True))
+        if found:
+            test_images = found
+            break
+
+    if not test_images:
+        print("  ❌ No test images found. Upload an image with upload_and_checkout()")
+        return
+
+    img_path = test_images[0]
+    print(f"  Using: {img_path}\n")
+
+    # Try each available model
+    models = {}
+    if os.path.exists(CONFIG["yolo_model"]):
+        models["YOLOv8"] = CONFIG["yolo_model"]
+    if os.path.exists(CONFIG["rtdetr_model"]):
+        models["RT-DETR"] = CONFIG["rtdetr_model"]
+    if os.path.exists(CONFIG["frcnn_model"]):
+        models["Faster R-CNN"] = CONFIG["frcnn_model"]
+
+    if not models:
+        print("  ❌ No trained models found. Run training first!")
+        return
+
+    if len(models) > 1:
+        compare_models(img_path, models)
+    else:
+        name, path = next(iter(models.items()))
+        detector = load_detector(path)
+        result = checkout(img_path, detector)
+        show_result(result)
+
+
+# ==============================================================================
+# 📖 USAGE GUIDE (run any of these in a Colab cell)
+# ==============================================================================
+#
+# ── Single Image ──────────────────────────────────────────
+#   detector = load_detector("/content/model_mixed_rice.pt")
+#   result = checkout("/content/test_food.jpg", detector)
+#   show_result(result)
+#
+# ── Upload & Checkout (interactive loop) ──────────────────
+#   results = upload_and_checkout()
+#   # → Select model (1=YOLOv8, 2=RT-DETR, 3=Faster R-CNN)
+#   # → Upload photo after photo (Enter to upload, m to switch model, q to quit)
+#   # → Prints a session summary with grand total at the end
+#
+# ── Batch Processing ──────────────────────────────────────
+#   detector = load_detector("/content/model_mixed_rice.pt")
+#   results = batch_checkout("/content/test_images/", detector)
+#
+# ── Compare All Models ────────────────────────────────────
+#   compare_models("/content/test.jpg", {
+#       "YOLOv8":       "/content/model_mixed_rice.pt",
+#       "RT-DETR":      "/content/model_rtdetr_mixed_rice.pt",
+#       "Faster R-CNN": "/content/faster_rcnn_mixed_rice.pth",
+#   })
+#
+# ── Access Cropped Food Items ─────────────────────────────
+#   result = checkout("/content/test.jpg", detector)
+#   for name, conf, crop_img in result.cropped_images:
+#       print(f"  {name} ({conf:.2f})")
+#       plt.imshow(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB))
+#       plt.show()
+#
+# ── Quick Demo ────────────────────────────────────────────
+#   demo()
+#
+# ==============================================================================
+
+if __name__ == "__main__":
+    demo()
