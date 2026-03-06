@@ -351,8 +351,11 @@ BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
 CURRENCY = "RM"
 SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
 
-# Unified class mapping
-CLASSES = ['meat', 'plate', 'rice', 'vege']
+# CRITICAL: Each model was trained with a different class order.
+# YOLO & RT-DETR: 0=meat, 1=rice, 2=vege, 3=plate
+# Faster R-CNN:   0=meat, 1=plate, 2=rice, 3=vege
+YOLO_RTDETR_CLASSES = ['meat', 'rice', 'vege', 'plate']
+FRCNN_CLASSES = ['meat', 'plate', 'rice', 'vege']
 COLORS = {'rice': (0, 255, 0), 'vege': (255, 0, 0), 'meat': (0, 0, 255), 'plate': (0, 255, 255)}
 
 # --- 2. Portion Logic (Ratio-Based) ---
@@ -383,7 +386,7 @@ frcnn_model = None
 if os.path.exists(frcnn_path):
     frcnn_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
     in_features = frcnn_model.roi_heads.box_predictor.cls_score.in_features
-    frcnn_model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(CLASSES) + 1)
+    frcnn_model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(FRCNN_CLASSES) + 1)
     frcnn_model.load_state_dict(torch.load(frcnn_path, map_location=device))
     frcnn_model.to(device)
     frcnn_model.eval()
@@ -473,7 +476,7 @@ while True:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     conf = float(box.conf[0])
                     cls_id = int(box.cls[0])
-                    task_name = CLASSES[cls_id]
+                    task_name = YOLO_RTDETR_CLASSES[cls_id]
 
                     if task_name == 'plate':
                         if conf > highest_plate_conf:
@@ -499,7 +502,7 @@ while True:
             for i, box in enumerate(boxes):
                 x1, y1, x2, y2 = map(int, box)
                 cls_id = labels[i] - 1
-                task_name = CLASSES[cls_id]
+                task_name = FRCNN_CLASSES[cls_id]
                 conf = scores[i]
 
                 if task_name == 'plate':
