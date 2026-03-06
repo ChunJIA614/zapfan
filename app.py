@@ -363,11 +363,9 @@ section[data-testid="stSidebar"] .stCheckbox label span {
 # ==============================================================================
 # Constants
 # ==============================================================================
-# CRITICAL: Each model was trained with a different class order.
-# YOLO & RT-DETR were trained with: 0=meat, 1=rice, 2=vege, 3=plate
-# Faster R-CNN was trained with:     0=meat, 1=plate, 2=rice, 3=vege
-YOLO_RTDETR_CLASSES = ['meat', 'rice', 'vege', 'plate']
-FRCNN_CLASSES = ['meat', 'plate', 'rice', 'vege']
+# All three models share the same class order because Faster R-CNN was trained
+# using YOLO-format label files (class IDs: 0=meat, 1=rice, 2=vege, 3=plate).
+CLASSES = ['meat', 'rice', 'vege', 'plate']
 BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
 CURRENCY = "RM"
 SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
@@ -430,7 +428,7 @@ def load_frcnn():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(FRCNN_CLASSES) + 1)
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(CLASSES) + 1)
     model.load_state_dict(torch.load(FRCNN_PATH, map_location=device))
     model.to(device)
     model.eval()
@@ -459,7 +457,7 @@ def run_ultralytics(model, img_rgb):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
-            task_name = YOLO_RTDETR_CLASSES[cls_id]
+            task_name = CLASSES[cls_id]
 
             if task_name == 'plate':
                 plates.append({'box': (x1, y1, x2, y2), 'score': conf})
@@ -504,7 +502,7 @@ def run_frcnn(model, img_rgb):
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = map(int, box)
         cls_id = labels[i] - 1  # Shift for background class
-        task_name = FRCNN_CLASSES[cls_id]
+        task_name = CLASSES[cls_id]
         conf = scores[i]
 
         if task_name == 'plate':
