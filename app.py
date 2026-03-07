@@ -2,6 +2,7 @@
 """
 Zapfan Smart Cashier — Streamlit App
 Economy Rice (Nasi Campur) AI-Powered Pricing System
+Powered by Module 4: Smart Checkout Inference System
 Models: YOLO | RT-DETR | Faster R-CNN
 """
 
@@ -9,11 +10,16 @@ import streamlit as st
 import cv2
 import numpy as np
 import os
-import math
+import time
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from PIL import Image
+from pathlib import Path
+from datetime import datetime
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Tuple
 
 # ==============================================================================
 # Page Configuration
@@ -362,342 +368,479 @@ section[data-testid="stSidebar"] .stCheckbox label span {
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# Constants
+# Configuration (Module 4 — Smart Checkout Engine)
 # ==============================================================================
-CLASSES = ['meat', 'plate', 'rice', 'vege']
-BASE_PRICES = {'meat': 4.00, 'rice': 1.50, 'vege': 2.00}
-CURRENCY = "RM"
-SIZE_MULTIPLIERS = {'S': 0.7, 'M': 1.0, 'L': 1.5}
-COLORS = {
-    'rice': (0, 255, 0),
-    'vege': (255, 0, 0),
-    'meat': (0, 0, 255),
-    'plate': (0, 255, 255),
+CONFIG = {
+    # ── Class definitions (must match training order) ─────────────────────
+    "classes": ["meat", "plate", "rice", "vege"],
+
+    # ── Pricing (RM) ──────────────────────────────────────────────────────
+    "currency": "RM",
+    "base_prices": {
+        "meat": 4.00,
+        "rice": 1.50,
+        "vege": 2.00,
+        "plate": 0.00,
+    },
+    "size_multipliers": {
+        "S": 0.7,
+        "M": 1.0,
+        "L": 1.5,
+    },
+
+    # ── Size thresholds (bbox area / image area) ─────────────────────────
+    "size_thresholds": {
+        "small_max":  0.04,   # bbox area < 4 % of image → Small
+        "medium_max": 0.10,   # bbox area < 10 % → Medium, >= 10 % → Large
+    },
+
+    # ── Detection settings ────────────────────────────────────────────────
+    "confidence_threshold": 0.40,
+    "iou_threshold":        0.45,
+    "imgsz":                640,
+
+    # ── Visualization (RGB colours for Streamlit) ─────────────────────────
+    "colors": {
+        "meat":  (255, 0, 0),
+        "rice":  (0, 200, 0),
+        "vege":  (255, 165, 0),
+        "plate": (0, 255, 255),
+    },
+    "font_scale":    0.7,
+    "box_thickness": 2,
 }
 
-# Model file paths (relative to this script)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-YOLO_PATH = os.path.join(BASE_DIR, "model_mixed_rice.pt")
+# Model file paths
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+YOLO_PATH   = os.path.join(BASE_DIR, "model_mixed_rice.pt")
 RTDETR_PATH = os.path.join(BASE_DIR, "model_rtdetr_mixed_rice.pt")
-FRCNN_PATH = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
+FRCNN_PATH  = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
 
 
 # ==============================================================================
-# Helper Functions
+# Data Classes
 # ==============================================================================
-def get_portion_size(food_box, plate_box):
-    """Determine portion size using intersection area vs elliptical plate area."""
-    if plate_box is None:
-        return 'M'
 
-    fx1, fy1, fx2, fy2 = food_box
-    px1, py1, px2, py2 = plate_box
+@dataclass
+class Detection:
+    """Single detected item with pricing."""
+    class_name:    str
+    confidence:    float
+    bbox:          Tuple[int, int, int, int]   # (x1, y1, x2, y2)
+    area_fraction: float                       # bbox area / image area
+    size:          str                         # S / M / L (or "—" for plate)
+    price:         float                       # after size multiplier
+    cropped_image: Optional[np.ndarray] = None
 
-    ix1 = max(fx1, px1)
-    iy1 = max(fy1, py1)
-    ix2 = min(fx2, px2)
-    iy2 = min(fy2, py2)
 
-    if ix2 < ix1 or iy2 < iy1:
-        intersect_area = (fx2 - fx1) * (fy2 - fy1)
+@dataclass
+class CheckoutResult:
+    """Full checkout result for one image."""
+    model_name:       str
+    detections:       List[Detection] = field(default_factory=list)
+    total_price:      float = 0.0
+    inference_time_ms: float = 0.0
+    annotated_image:  Optional[np.ndarray] = None
+
+    @property
+    def item_summary(self) -> Dict[str, int]:
+        """Count of each detected class."""
+        return dict(Counter(d.class_name for d in self.detections))
+
+    @property
+    def billable_items(self) -> List[Detection]:
+        """Items that have price > 0 (excludes plate)."""
+        return [d for d in self.detections if d.price > 0]
+
+    @property
+    def plate_detection(self) -> Optional[Detection]:
+        """Return the single plate detection, if any."""
+        plates = [d for d in self.detections if d.class_name == "plate"]
+        return plates[0] if plates else None
+
+
+# ==============================================================================
+# Size Estimator & Pricing
+# ==============================================================================
+
+def estimate_size(area_fraction: float) -> str:
+    """Estimate portion size from bbox area as fraction of image area."""
+    thresholds = CONFIG["size_thresholds"]
+    if area_fraction < thresholds["small_max"]:
+        return "S"
+    elif area_fraction < thresholds["medium_max"]:
+        return "M"
     else:
-        intersect_area = (ix2 - ix1) * (iy2 - iy1)
+        return "L"
 
-    plate_w = px2 - px1
-    plate_h = py2 - py1
-    plate_area = math.pi * (plate_w / 2) * (plate_h / 2)
 
-    if plate_area <= 0:
-        return 'M'
-
-    ratio = intersect_area / plate_area
-
-    if ratio < 0.15:
-        return 'S'
-    elif ratio > 0.35:
-        return 'L'
-    else:
-        return 'M'
+def calculate_price(class_name: str, size: str) -> float:
+    """Calculate price for a single item based on class and size."""
+    base = CONFIG["base_prices"].get(class_name, 0.0)
+    mult = CONFIG["size_multipliers"].get(size, 1.0)
+    return round(base * mult, 2)
 
 
 # ==============================================================================
-# Model Loading (cached so models load only once)
+# NMS Helpers
 # ==============================================================================
-@st.cache_resource
-def load_yolo():
-    """Load YOLO model."""
-    if not os.path.exists(YOLO_PATH):
-        return None
-    from ultralytics import YOLO
-    return YOLO(YOLO_PATH)
+
+def _compute_iou(box1, box2) -> float:
+    """Compute IoU between two (x1, y1, x2, y2) boxes."""
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0.0
 
 
-@st.cache_resource
-def load_rtdetr():
-    """Load RT-DETR model."""
-    if not os.path.exists(RTDETR_PATH):
-        return None
-    from ultralytics import RTDETR
-    return RTDETR(RTDETR_PATH)
+def _nms_filter(detections: List[Dict], iou_thresh: float) -> List[Dict]:
+    """Class-aware NMS to remove duplicate boxes."""
+    if len(detections) <= 1:
+        return detections
 
+    by_class: Dict[str, list] = defaultdict(list)
+    for d in detections:
+        by_class[d["class_name"]].append(d)
 
-@st.cache_resource
-def load_frcnn():
-    """Load Faster R-CNN model."""
-    if not os.path.exists(FRCNN_PATH):
-        return None
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, len(CLASSES) + 1)
-    model.load_state_dict(torch.load(FRCNN_PATH, map_location=device))
-    model.to(device)
-    model.eval()
-    return model
+    filtered: List[Dict] = []
+    for cls_name, dets in by_class.items():
+        dets.sort(key=lambda x: x["confidence"], reverse=True)
+        keep: List[Dict] = []
+        for det in dets:
+            if not any(_compute_iou(det["bbox"], k["bbox"]) > iou_thresh for k in keep):
+                keep.append(det)
+        filtered.extend(keep)
+    return filtered
 
 
 # ==============================================================================
-# Inference Functions
+# Detector Wrapper Classes
 # ==============================================================================
-def run_ultralytics(model, img_rgb):
-    """Run inference using an Ultralytics model (YOLO / RT-DETR).
 
-    Returns
-    -------
-    valid_foods : list[dict]
-        Detected food items (name, box, score).
-    plate : dict or None
-        The single highest-confidence plate (box, score), or None.
-    """
-    results = model.predict(img_rgb, conf=0.25, iou=0.45, verbose=False)
-    valid_foods = []
-    best_plate = None
-    best_plate_conf = 0
+class YOLODetector:
+    """Wrapper for YOLOv8 / RT-DETR (ultralytics API)."""
 
-    for r in results:
-        for box in r.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            conf = float(box.conf[0])
-            cls_id = int(box.cls[0])
+    def __init__(self, model_path: str, model_type: str = "yolo"):
+        from ultralytics import YOLO, RTDETR
+        self.model_type = model_type
+        if model_type == "rtdetr":
+            self.model = RTDETR(model_path)
+            self.name = "RT-DETR"
+        else:
+            self.model = YOLO(model_path)
+            self.name = "YOLOv8"
 
-            if cls_id >= len(CLASSES):
+    def predict(self, image: np.ndarray) -> List[Dict]:
+        """Return list of raw detection dicts {class_name, confidence, bbox}."""
+        results = self.model.predict(
+            source=image,
+            conf=CONFIG["confidence_threshold"],
+            iou=CONFIG["iou_threshold"],
+            imgsz=CONFIG["imgsz"],
+            verbose=False,
+        )
+        detections: List[Dict] = []
+        classes = CONFIG["classes"]
+        if results and len(results) > 0:
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                if cls_id < len(classes):
+                    detections.append({
+                        "class_name": classes[cls_id],
+                        "confidence": conf,
+                        "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                    })
+        return detections
+
+
+class FasterRCNNDetector:
+    """Wrapper for Faster R-CNN (torchvision)."""
+
+    def __init__(self, model_path: str):
+        self.name = "Faster R-CNN"
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        num_classes = len(CONFIG["classes"]) + 1  # +1 for background
+        self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
+        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
+        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.to(self.device)
+        self.model.eval()
+
+    @torch.no_grad()
+    def predict(self, image: np.ndarray) -> List[Dict]:
+        """Return list of raw detection dicts {class_name, confidence, bbox}."""
+        img_tensor = (
+            torch.as_tensor(image, dtype=torch.float32).permute(2, 0, 1) / 255.0
+        )
+        img_tensor = img_tensor.unsqueeze(0).to(self.device)
+        outputs = self.model(img_tensor)[0]
+
+        detections: List[Dict] = []
+        classes = CONFIG["classes"]
+        for box, score, label in zip(
+            outputs["boxes"].cpu().numpy(),
+            outputs["scores"].cpu().numpy(),
+            outputs["labels"].cpu().numpy(),
+        ):
+            if score < CONFIG["confidence_threshold"]:
                 continue
-
-            task_name = CLASSES[cls_id]
-
-            if task_name == 'plate':
-                if conf > best_plate_conf:
-                    best_plate_conf = conf
-                    best_plate = {'box': (x1, y1, x2, y2), 'score': conf}
-            else:
-                valid_foods.append({
-                    'name': task_name,
-                    'box': (x1, y1, x2, y2),
-                    'score': conf,
+            if label == 0:  # skip background
+                continue
+            cls_idx = label - 1
+            if cls_idx < len(classes):
+                x1, y1, x2, y2 = box.astype(int)
+                detections.append({
+                    "class_name": classes[cls_idx],
+                    "confidence": float(score),
+                    "bbox": (int(x1), int(y1), int(x2), int(y2)),
                 })
 
-    return valid_foods, best_plate
+        return _nms_filter(detections, CONFIG["iou_threshold"])
 
 
-def run_frcnn(model, img_rgb):
-    """Run inference using Faster R-CNN (PyTorch).
-
-    Returns
-    -------
-    valid_foods : list[dict]
-        Detected food items (name, box, score).
-    plate : dict or None
-        The single highest-confidence plate (box, score), or None.
-    """
-    device = next(model.parameters()).device
-    img_tensor = torch.as_tensor(img_rgb, dtype=torch.float32).permute(2, 0, 1) / 255.0
-    img_tensor = img_tensor.unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        predictions = model(img_tensor)[0]
-
-    CONF_THRESH = 0.5
-    mask = predictions['scores'] > CONF_THRESH
-    boxes = predictions['boxes'][mask]
-    labels = predictions['labels'][mask]
-    scores = predictions['scores'][mask]
-
-    keep = torchvision.ops.nms(boxes, scores, iou_threshold=0.3)
-    boxes = boxes[keep].cpu().numpy()
-    labels = labels[keep].cpu().numpy()
-    scores = scores[keep].cpu().numpy()
-
-    valid_foods = []
-    best_plate = None
-    best_plate_conf = 0
-
-    for i, box in enumerate(boxes):
-        x1, y1, x2, y2 = map(int, box)
-        cls_id = labels[i] - 1  # Shift for background class
-
-        if cls_id < 0 or cls_id >= len(CLASSES):
-            continue
-
-        task_name = CLASSES[cls_id]
-        conf = scores[i]
-
-        if task_name == 'plate':
-            if conf > best_plate_conf:
-                best_plate_conf = conf
-                best_plate = {'box': (x1, y1, x2, y2), 'score': conf}
-        else:
-            valid_foods.append({
-                'name': task_name,
-                'box': (x1, y1, x2, y2),
-                'score': conf,
-            })
-
-    return valid_foods, best_plate
-
-
-def draw_results(img_rgb, valid_foods, plate):
-    """Draw bounding boxes, labels, and subtotal on the image.
-
-    Parameters
-    ----------
-    img_rgb : ndarray – input image (RGB).
-    valid_foods : list[dict] – detected food items.
-    plate : dict or None – single detected plate (box, score).
-
-    Returns
-    -------
-    img_display : ndarray  – annotated image
-    receipt_lines : list[dict] – receipt line items
-    subtotal : float – total price for this plate
-    all_cropped : list[tuple] – (name, score, cropped_img)
-    """
-    img_display = img_rgb.copy()
-    img_clean = img_rgb.copy()
-    all_cropped = []
-
-    # --- Determine the plate box for portion sizing ---
-    if plate is not None:
-        plate_box = plate['box']
-        px1, py1, px2, py2 = plate_box
-        cv2.rectangle(img_display, (px1, py1), (px2, py2), (0, 255, 255), 3)
-        cv2.putText(img_display, f"Plate ({plate['score']:.2f})",
-                    (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+def load_detector(model_path: str):
+    """Auto-detect model type from filename and return the appropriate detector."""
+    if not os.path.exists(model_path):
+        return None
+    ext = Path(model_path).suffix.lower()
+    name_lower = Path(model_path).stem.lower()
+    if ext == ".pth":
+        return FasterRCNNDetector(model_path)
+    elif "rtdetr" in name_lower:
+        return YOLODetector(model_path, model_type="rtdetr")
     else:
-        # No plate detected — estimate from food boundaries
-        min_x = min(d['box'][0] for d in valid_foods)
-        min_y = min(d['box'][1] for d in valid_foods)
-        max_x = max(d['box'][2] for d in valid_foods)
-        max_y = max(d['box'][3] for d in valid_foods)
-        plate_box = (min_x, min_y, max_x, max_y)
-        cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y),
-                      (255, 255, 255), 2, cv2.LINE_AA)
+        return YOLODetector(model_path, model_type="yolo")
 
-    # --- Process all food items on this single plate ---
-    subtotal = 0.0
-    receipt_lines = []
 
-    for item in valid_foods:
-        task_name = item['name']
-        conf = item['score']
-        x1, y1, x2, y2 = item['box']
-        size_label = get_portion_size((x1, y1, x2, y2), plate_box)
+# ==============================================================================
+# Model Loading (cached — loads once per Streamlit session)
+# ==============================================================================
 
-        multiplier = SIZE_MULTIPLIERS[size_label]
-        final_price = BASE_PRICES[task_name] * multiplier
-        subtotal += final_price
+@st.cache_resource
+def get_detector(model_key: str):
+    """Return a cached detector instance for the given model key."""
+    paths = {"yolo": YOLO_PATH, "rtdetr": RTDETR_PATH, "frcnn": FRCNN_PATH}
+    path = paths.get(model_key)
+    if path is None or not os.path.exists(path):
+        return None
+    return load_detector(path)
 
-        receipt_lines.append({
-            'item': task_name.capitalize(),
-            'size': size_label,
-            'price': final_price,
-        })
 
-        # Crop with 10% padding
+def _resolve_model_key(model_option: str) -> str:
+    """Map UI display name → internal key."""
+    if "YOLO" in model_option:
+        return "yolo"
+    elif "RT-DETR" in model_option:
+        return "rtdetr"
+    else:
+        return "frcnn"
+
+
+# ==============================================================================
+# Checkout Engine (Single-Plate)
+# ==============================================================================
+
+def checkout(img_rgb: np.ndarray, detector) -> CheckoutResult:
+    """
+    Run detection on a single image and compute the checkout.
+
+    Enforces single-plate detection (highest-confidence plate only).
+    Size is estimated from bbox area as a fraction of total image area.
+    """
+    img_h, img_w = img_rgb.shape[:2]
+    img_area = img_h * img_w
+
+    # ── Run inference with timing ─────────────────────────────────────────
+    t0 = time.time()
+    raw_detections = detector.predict(img_rgb)
+    inference_ms = (time.time() - t0) * 1000
+
+    # ── Separate plates and food items ────────────────────────────────────
+    raw_plates = [d for d in raw_detections if d["class_name"] == "plate"]
+    raw_foods  = [d for d in raw_detections if d["class_name"] != "plate"]
+
+    # Keep only the highest-confidence plate
+    best_plate = max(raw_plates, key=lambda p: p["confidence"]) if raw_plates else None
+
+    # ── Build Detection objects ───────────────────────────────────────────
+    detections: List[Detection] = []
+
+    if best_plate:
+        x1, y1, x2, y2 = best_plate["bbox"]
+        bbox_area = (x2 - x1) * (y2 - y1)
+        detections.append(Detection(
+            class_name="plate",
+            confidence=best_plate["confidence"],
+            bbox=best_plate["bbox"],
+            area_fraction=bbox_area / img_area,
+            size="—",
+            price=0.0,
+            cropped_image=None,
+        ))
+
+    for raw in raw_foods:
+        x1, y1, x2, y2 = raw["bbox"]
+        bbox_area = (x2 - x1) * (y2 - y1)
+        area_frac = bbox_area / img_area
+
+        size  = estimate_size(area_frac)
+        price = calculate_price(raw["class_name"], size)
+
+        # Crop with 10 % padding
         pad_x = int((x2 - x1) * 0.10)
         pad_y = int((y2 - y1) * 0.10)
-        crop_y1 = max(0, y1 - pad_y)
-        crop_y2 = min(img_clean.shape[0], y2 + pad_y)
-        crop_x1 = max(0, x1 - pad_x)
-        crop_x2 = min(img_clean.shape[1], x2 + pad_x)
-        if crop_y2 > crop_y1 and crop_x2 > crop_x1:
-            cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
-            all_cropped.append((task_name, conf, cropped_part))
-
-        # Draw bounding box
-        color = COLORS[task_name]
-        rgb = (color[2], color[1], color[0])
-        cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
-
-        label = f"{task_name.capitalize()} ({size_label}) {CURRENCY}{final_price:.2f}"
-        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-        cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)),
-                      (x1 + t_size[0], max(y1, 10)), rgb, -1)
-        cv2.putText(img_display, label, (x1, max(y1 - 5, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-    return img_display, receipt_lines, subtotal, all_cropped
-
-
-# ==============================================================================
-# Helper: run a single model and display results in a container
-# ==============================================================================
-def analyse_and_display(img_rgb, model_option, container=None):
-    """Load the chosen model, run inference, and render results inside *container*."""
-    if container is None:
-        container = st.container()
-    with container:
-        # Load model
-        with st.spinner(f"Loading {model_option} model..."):
-            if "YOLO" in model_option:
-                model = load_yolo()
-            elif "RT-DETR" in model_option:
-                model = load_rtdetr()
-            else:
-                model = load_frcnn()
-
-        if model is None:
-            st.error(f"Model file not found for **{model_option}**! "
-                     "Make sure the model weights are in the project folder.")
-            return
-
-        # Run inference
-        with st.spinner(f"Analyzing your plate with {model_option}..."):
-            if "Faster R-CNN" in model_option:
-                valid_foods, plate = run_frcnn(model, img_rgb)
-            else:
-                valid_foods, plate = run_ultralytics(model, img_rgb)
-
-        if not valid_foods:
-            st.warning(f"[{model_option}] No food items detected. Try a different model or image.")
-            return
-
-        # Draw results for single plate
-        img_display, receipt_lines, subtotal, all_cropped = draw_results(
-            img_rgb, valid_foods, plate
+        c_y1, c_y2 = max(0, y1 - pad_y), min(img_h, y2 + pad_y)
+        c_x1, c_x2 = max(0, x1 - pad_x), min(img_w, x2 + pad_x)
+        crop = (
+            img_rgb[c_y1:c_y2, c_x1:c_x2].copy()
+            if c_y2 > c_y1 and c_x2 > c_x1
+            else None
         )
 
-        total_items = len(receipt_lines)
+        detections.append(Detection(
+            class_name=raw["class_name"],
+            confidence=raw["confidence"],
+            bbox=raw["bbox"],
+            area_fraction=area_frac,
+            size=size,
+            price=price,
+            cropped_image=crop,
+        ))
+
+    # Sort: plate first, then alphabetically, highest confidence first
+    detections.sort(key=lambda d: (d.class_name != "plate", d.class_name, -d.confidence))
+
+    subtotal = sum(d.price for d in detections)
+
+    # ── Annotate image ────────────────────────────────────────────────────
+    annotated = _draw_detections(img_rgb.copy(), detections)
+
+    return CheckoutResult(
+        model_name=detector.name,
+        detections=detections,
+        total_price=subtotal,
+        inference_time_ms=inference_ms,
+        annotated_image=annotated,
+    )
+
+
+# ==============================================================================
+# Visualization
+# ==============================================================================
+
+def _draw_detections(image: np.ndarray, detections: List[Detection]) -> np.ndarray:
+    """Draw bounding boxes and labels on the image (RGB)."""
+    colors   = CONFIG["colors"]
+    currency = CONFIG["currency"]
+    font     = cv2.FONT_HERSHEY_SIMPLEX
+    scale    = CONFIG["font_scale"]
+    thick    = CONFIG["box_thickness"]
+
+    for det in detections:
+        x1, y1, x2, y2 = det.bbox
+        color = colors.get(det.class_name, (200, 200, 200))
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, thick)
+
+        if det.class_name == "plate":
+            label = f"Plate {det.confidence:.0%}"
+        else:
+            label = (
+                f"{det.class_name.capitalize()} ({det.size}) "
+                f"{det.confidence:.0%} {currency}{det.price:.2f}"
+            )
+
+        (tw, th), _ = cv2.getTextSize(label, font, scale, 2)
+        cv2.rectangle(
+            image,
+            (x1, max(y1 - th - 10, 0)),
+            (x1 + tw + 6, max(y1, 10)),
+            color, -1,
+        )
+        cv2.putText(
+            image, label, (x1 + 3, max(y1 - 5, 15)),
+            font, scale, (255, 255, 255), 2,
+        )
+
+    return image
+
+
+# ==============================================================================
+# Streamlit Display — analyse & render results
+# ==============================================================================
+
+def analyse_and_display(img_rgb, model_option, container=None):
+    """Load the chosen model, run checkout engine, and render results."""
+    if container is None:
+        container = st.container()
+
+    with container:
+        # ── Load detector ─────────────────────────────────────────────────
+        model_key = _resolve_model_key(model_option)
+        with st.spinner(f"Loading {model_option} model..."):
+            detector = get_detector(model_key)
+
+        if detector is None:
+            st.error(
+                f"Model file not found for **{model_option}**! "
+                "Make sure the model weights are in the project folder."
+            )
+            return
+
+        # ── Run checkout ──────────────────────────────────────────────────
+        with st.spinner(f"Analyzing your plate with {model_option}..."):
+            result = checkout(img_rgb, detector)
+
+        if not result.billable_items:
+            st.warning(
+                f"[{model_option}] No food items detected. "
+                "Try a different model or image."
+            )
+            return
+
+        currency    = CONFIG["currency"]
+        total_items = len(result.billable_items)
         model_label = model_option.split(" (")[0]
 
-        # ---- Summary stat chips (Google style) ----
+        # ── Summary stat chips (Google style) ─────────────────────────────
         stat_html = (
             '<div class="g-stats">'
-            f'<div class="g-chip"><span class="g-chip-num">1</span><span class="g-chip-label">Plate</span></div>'
-            f'<div class="g-chip"><span class="g-chip-num">{total_items}</span><span class="g-chip-label">Items</span></div>'
-            f'<div class="g-chip"><span class="g-chip-num">{CURRENCY}{subtotal:.2f}</span><span class="g-chip-label">Subtotal</span></div>'
+            '<div class="g-chip">'
+            '<span class="g-chip-num">1</span>'
+            '<span class="g-chip-label">Plate</span></div>'
+            f'<div class="g-chip">'
+            f'<span class="g-chip-num">{total_items}</span>'
+            f'<span class="g-chip-label">Items</span></div>'
+            f'<div class="g-chip">'
+            f'<span class="g-chip-num">{currency}{result.total_price:.2f}</span>'
+            f'<span class="g-chip-label">Subtotal</span></div>'
+            f'<div class="g-chip">'
+            f'<span class="g-chip-num">{result.inference_time_ms:.0f}ms</span>'
+            f'<span class="g-chip-label">Speed</span></div>'
             '</div>'
         )
         st.markdown(stat_html, unsafe_allow_html=True)
 
-        # ---- Result columns ----
+        # ── Result columns ────────────────────────────────────────────────
         col_img, col_receipt = st.columns([3, 2])
 
         with col_img:
-            st.markdown('<div class="g-section">Detection result</div>', unsafe_allow_html=True)
-            st.image(img_display, use_container_width=True)
+            st.markdown(
+                '<div class="g-section">Detection result</div>',
+                unsafe_allow_html=True,
+            )
+            st.image(result.annotated_image, use_container_width=True)
 
         with col_receipt:
-            # Build receipt using native Streamlit components
             st.markdown(
                 f'<div class="receipt-card"><div class="receipt-header">'
                 f'Receipt <span class="model-tag">{model_label}</span>'
@@ -705,35 +848,74 @@ def analyse_and_display(img_rgb, model_option, container=None):
                 unsafe_allow_html=True,
             )
 
-            for line in receipt_lines:
-                item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
-                i_name = line["item"]
-                i_size = line["size"]
-                i_price = line["price"]
+            # Group billable items by (class, size) for a cleaner receipt
+            grouped: Dict[Tuple, Dict] = defaultdict(
+                lambda: {"count": 0, "unit_price": 0.0}
+            )
+            for d in result.billable_items:
+                key = (d.class_name, d.size)
+                grouped[key]["count"] += 1
+                grouped[key]["unit_price"] = d.price
+
+            for (cls, size), info in sorted(grouped.items()):
+                item_emoji = {"meat": "🥩", "rice": "🍚", "vege": "🥬"}.get(cls, "🍽️")
+                count = info["count"]
+                unit  = info["unit_price"]
+                line_total = unit * count
+                qty_label = f" ×{count}" if count > 1 else ""
+
                 st.markdown(
                     f'<div class="receipt-item">'
-                    f'<span class="label">{item_emoji} {i_name}'
-                    f'<span class="tag">{i_size}</span></span>'
-                    f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
+                    f'<span class="label">{item_emoji} {cls.capitalize()}{qty_label}'
+                    f'<span class="tag">{size}</span></span>'
+                    f'<span class="price">{currency}{line_total:.2f}</span>'
                     f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # Plate row
+            if result.plate_detection:
+                st.markdown(
+                    '<div class="receipt-item">'
+                    '<span class="label">🍽️ Plate detected</span>'
+                    '<span class="price">—</span>'
+                    '</div>',
                     unsafe_allow_html=True,
                 )
 
             st.markdown(
                 f'<div class="receipt-total">'
-                f'<span>Subtotal</span><span>{CURRENCY}{subtotal:.2f}</span>'
+                f'<span>Subtotal</span><span>{currency}{result.total_price:.2f}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-        # ---- Cropped items ----
-        if all_cropped:
-            with st.expander(f"Detected items ({len(all_cropped)})", expanded=False):
-                crop_cols = st.columns(min(len(all_cropped), 4))
-                for idx, (c_name, c_score, c_img) in enumerate(all_cropped):
+            # Item count summary
+            food_summary = {
+                k: v for k, v in result.item_summary.items() if k != "plate"
+            }
+            if food_summary:
+                summary_str = " · ".join(
+                    f"{v}× {k}" for k, v in sorted(food_summary.items())
+                )
+                st.caption(f"Items: {summary_str}")
+
+        # ── Cropped items ─────────────────────────────────────────────────
+        cropped = [
+            (d.class_name, d.confidence, d.cropped_image)
+            for d in result.detections
+            if d.cropped_image is not None
+        ]
+        if cropped:
+            with st.expander(f"Detected items ({len(cropped)})", expanded=False):
+                crop_cols = st.columns(min(len(cropped), 4))
+                for idx, (c_name, c_score, c_img) in enumerate(cropped):
                     with crop_cols[idx % len(crop_cols)]:
-                        st.image(c_img, caption=f"{c_name.capitalize()} ({c_score:.0%})",
-                                 use_container_width=True)
+                        st.image(
+                            c_img,
+                            caption=f"{c_name.capitalize()} ({c_score:.0%})",
+                            use_container_width=True,
+                        )
 
 
 # ==============================================================================
