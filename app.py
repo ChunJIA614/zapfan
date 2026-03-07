@@ -416,6 +416,29 @@ YOLO_PATH   = os.path.join(BASE_DIR, "model_mixed_rice.pt")
 RTDETR_PATH = os.path.join(BASE_DIR, "model_rtdetr_mixed_rice.pt")
 FRCNN_PATH  = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
 
+# Training results directory
+TRAINING_RESULTS_DIR = os.path.join(BASE_DIR, "training_results")
+
+# Map model keys → training results subfolder + display name
+MODEL_RESULTS_MAP = {
+    "yolo":  {"dir": os.path.join(TRAINING_RESULTS_DIR, "yolo"),  "name": "YOLOv8"},
+    "rtdetr": {"dir": os.path.join(TRAINING_RESULTS_DIR, "rtdetr"), "name": "RT-DETR"},
+    "frcnn": {"dir": os.path.join(TRAINING_RESULTS_DIR, "frcnn"), "name": "Faster R-CNN"},
+}
+
+# Training plot filenames we look for (in priority display order)
+TRAINING_PLOTS = [
+    ("results.png",            "Training Results",   "Metrics over training epochs (loss, mAP, precision, recall)"),
+    ("confusion_matrix.png",   "Confusion Matrix",   "Classification confusion matrix on validation set"),
+    ("confusion_matrix_normalized.png", "Confusion Matrix (Normalized)", "Normalized confusion matrix"),
+    ("PR_curve.png",           "Precision-Recall Curve", "PR curve for each class"),
+    ("F1_curve.png",           "F1 Curve",           "F1 score vs confidence threshold"),
+    ("P_curve.png",            "Precision Curve",    "Precision vs confidence threshold"),
+    ("R_curve.png",            "Recall Curve",       "Recall vs confidence threshold"),
+    ("labels.jpg",             "Label Distribution", "Distribution of labels in training set"),
+    ("labels_correlogram.jpg", "Labels Correlogram",  "Correlogram of label positions and sizes"),
+]
+
 
 # ==============================================================================
 # Data Classes
@@ -1000,130 +1023,260 @@ with st.sidebar:
     st.markdown("---")
     st.markdown('<p style="font-size:0.75rem;color:#9aa0a6;text-align:center;">Zapfan © 2026 &middot; Powered by Streamlit</p>', unsafe_allow_html=True)
 
-# --- Main Area: Image Input ---
-st.markdown('<div class="g-section">Add an image</div>', unsafe_allow_html=True)
-input_tab_upload, input_tab_camera = st.tabs(["Upload file", "Camera"])
+# --- Main Area: Top-level page tabs ---
+page_checkout, page_training = st.tabs(["🍽️ Smart Checkout", "📊 Training Results"])
 
-with input_tab_upload:
-    uploaded_file = st.file_uploader(
-        "Drag & drop or browse a photo of your plate",
-        type=["jpg", "jpeg", "png"],
-        key="uploader",
-    )
+# ==============================================================================
+# Page 1: Smart Checkout
+# ==============================================================================
+with page_checkout:
+    st.markdown('<div class="g-section">Add an image</div>', unsafe_allow_html=True)
+    input_tab_upload, input_tab_camera = st.tabs(["Upload file", "Camera"])
 
-    # Process a new upload
-    if uploaded_file is not None:
-        current_file_id = uploaded_file.file_id
-        if current_file_id != st.session_state.last_file_id:
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    with input_tab_upload:
+        uploaded_file = st.file_uploader(
+            "Drag & drop or browse a photo of your plate",
+            type=["jpg", "jpeg", "png"],
+            key="uploader",
+        )
 
-            if img_bgr is None:
-                st.error("Could not read the uploaded image. Please try a different file.")
-            else:
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                base_name = uploaded_file.name
-                existing_names = [n for n, _ in st.session_state.image_history]
-                name = base_name
-                counter = 2
-                while name in existing_names:
-                    dot = base_name.rfind('.')
-                    if dot != -1:
-                        name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
-                    else:
+        # Process a new upload
+        if uploaded_file is not None:
+            current_file_id = uploaded_file.file_id
+            if current_file_id != st.session_state.last_file_id:
+                file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+                img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+                if img_bgr is None:
+                    st.error("Could not read the uploaded image. Please try a different file.")
+                else:
+                    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                    base_name = uploaded_file.name
+                    existing_names = [n for n, _ in st.session_state.image_history]
+                    name = base_name
+                    counter = 2
+                    while name in existing_names:
+                        dot = base_name.rfind('.')
+                        if dot != -1:
+                            name = f"{base_name[:dot]} ({counter}){base_name[dot:]}"
+                        else:
+                            name = f"{base_name} ({counter})"
+                        counter += 1
+                    st.session_state.image_history.append((name, img_rgb))
+                    st.session_state.active_index = len(st.session_state.image_history) - 1
+                    st.session_state.last_file_id = current_file_id
+                    st.session_state.new_upload_pending = True
+                    st.session_state.auto_analyse = True
+                    st.session_state.upload_counter += 1
+                    st.rerun()
+
+    with input_tab_camera:
+        st.caption("Use your device camera. The image will be analysed automatically.")
+        camera_photo = st.camera_input(
+            "Tap to capture",
+            key="camera_input",
+        )
+
+        if camera_photo is not None:
+            current_camera_id = camera_photo.file_id
+            if current_camera_id != st.session_state.last_camera_id:
+                cam_bytes = np.asarray(bytearray(camera_photo.read()), dtype=np.uint8)
+                cam_bgr = cv2.imdecode(cam_bytes, cv2.IMREAD_COLOR)
+
+                if cam_bgr is None:
+                    st.error("Could not read the camera image. Please try again.")
+                else:
+                    cam_rgb = cv2.cvtColor(cam_bgr, cv2.COLOR_BGR2RGB)
+                    st.session_state.camera_counter += 1
+                    base_name = f"Camera Shot {st.session_state.camera_counter}"
+                    existing_names = [n for n, _ in st.session_state.image_history]
+                    name = base_name
+                    counter = 2
+                    while name in existing_names:
                         name = f"{base_name} ({counter})"
-                    counter += 1
-                st.session_state.image_history.append((name, img_rgb))
-                st.session_state.active_index = len(st.session_state.image_history) - 1
-                st.session_state.last_file_id = current_file_id
-                st.session_state.new_upload_pending = True
-                st.session_state.auto_analyse = True
-                st.session_state.upload_counter += 1
-                st.rerun()
+                        counter += 1
+                    st.session_state.image_history.append((name, cam_rgb))
+                    st.session_state.active_index = len(st.session_state.image_history) - 1
+                    st.session_state.last_camera_id = current_camera_id
+                    st.session_state.new_upload_pending = True
+                    st.session_state.auto_analyse = True
+                    st.session_state.upload_counter += 1
+                    st.rerun()
 
-with input_tab_camera:
-    st.caption("Use your device camera. The image will be analysed automatically.")
-    camera_photo = st.camera_input(
-        "Tap to capture",
-        key="camera_input",
+    # --- Display active image & run analysis ---
+    if st.session_state.image_history:
+        active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
+
+        st.markdown('<div class="g-section">Current image</div>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color:#5f6368;font-size:0.85rem;margin:0 0 8px 0;">{active_name}</p>', unsafe_allow_html=True)
+        st.image(img_rgb, use_container_width=True)
+
+        # Action buttons
+        btn_col1, btn_col2, btn_col3 = st.columns([2, 1, 1])
+        with btn_col1:
+            run_analysis = st.button("Analyse", type="primary", use_container_width=True)
+        with btn_col2:
+            remove_current = st.button("Remove", use_container_width=True)
+        with btn_col3:
+            upload_new = st.button("New image", use_container_width=True)
+
+        # Handle remove
+        if remove_current:
+            st.session_state.image_history.pop(st.session_state.active_index)
+            if st.session_state.image_history:
+                st.session_state.active_index = max(0, st.session_state.active_index - 1)
+            else:
+                st.session_state.active_index = 0
+            st.rerun()
+
+        if upload_new:
+            st.info("Use the **Upload file** or **Camera** tab above to add a new image.")
+
+        # Run analysis (manual button or automatic on new upload)
+        should_analyse = run_analysis or st.session_state.auto_analyse
+        if st.session_state.auto_analyse:
+            st.session_state.auto_analyse = False
+        if should_analyse:
+            st.markdown("---")
+            if compare_all:
+                st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
+                tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
+                for tab, m_opt in zip(tabs, MODEL_OPTIONS):
+                    analyse_and_display(img_rgb, m_opt, container=tab)
+            else:
+                analyse_and_display(img_rgb, model_option)
+
+        # Footer
+        st.markdown('<div class="g-footer">Zapfan Smart Cashier &copy; 2026 &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="g-empty">
+            <div class="g-empty-icon">📷</div>
+            <h3>No image yet</h3>
+            <p>Upload a photo or take a picture of your economy rice plate to get started.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ==============================================================================
+# Page 2: Training Results
+# ==============================================================================
+with page_training:
+    st.markdown(
+        '<div class="g-section" style="font-size:1.1rem;">Training Results &amp; Model Evaluation</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "View training metrics, confusion matrices, and evaluation curves for all three models. "
+        "Place image files in the `training_results/<model>/` folders."
     )
 
-    if camera_photo is not None:
-        current_camera_id = camera_photo.file_id
-        if current_camera_id != st.session_state.last_camera_id:
-            cam_bytes = np.asarray(bytearray(camera_photo.read()), dtype=np.uint8)
-            cam_bgr = cv2.imdecode(cam_bytes, cv2.IMREAD_COLOR)
+    # --- Discover available plots per model ---
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
+    any_plots_found = False
 
-            if cam_bgr is None:
-                st.error("Could not read the camera image. Please try again.")
-            else:
-                cam_rgb = cv2.cvtColor(cam_bgr, cv2.COLOR_BGR2RGB)
-                st.session_state.camera_counter += 1
-                base_name = f"Camera Shot {st.session_state.camera_counter}"
-                existing_names = [n for n, _ in st.session_state.image_history]
-                name = base_name
-                counter = 2
-                while name in existing_names:
-                    name = f"{base_name} ({counter})"
-                    counter += 1
-                st.session_state.image_history.append((name, cam_rgb))
-                st.session_state.active_index = len(st.session_state.image_history) - 1
-                st.session_state.last_camera_id = current_camera_id
-                st.session_state.new_upload_pending = True
-                st.session_state.auto_analyse = True
-                st.session_state.upload_counter += 1
-                st.rerun()
+    # Build tabs for all three models
+    tr_tab_yolo, tr_tab_rtdetr, tr_tab_frcnn = st.tabs(["YOLOv8", "RT-DETR", "Faster R-CNN"])
 
-# --- Display active image & run analysis ---
-if st.session_state.image_history:
-    active_name, img_rgb = st.session_state.image_history[st.session_state.active_index]
+    for tr_tab, model_key in zip(
+        [tr_tab_yolo, tr_tab_rtdetr, tr_tab_frcnn],
+        ["yolo", "rtdetr", "frcnn"],
+    ):
+        with tr_tab:
+            model_info = MODEL_RESULTS_MAP[model_key]
+            results_dir = model_info["dir"]
+            model_display = model_info["name"]
 
-    st.markdown('<div class="g-section">Current image</div>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:#5f6368;font-size:0.85rem;margin:0 0 8px 0;">{active_name}</p>', unsafe_allow_html=True)
-    st.image(img_rgb, use_container_width=True)
+            if not os.path.isdir(results_dir):
+                st.info(f"No training results folder found for **{model_display}**.")
+                continue
 
-    # Action buttons
-    btn_col1, btn_col2, btn_col3 = st.columns([2, 1, 1])
-    with btn_col1:
-        run_analysis = st.button("Analyse", type="primary", use_container_width=True)
-    with btn_col2:
-        remove_current = st.button("Remove", use_container_width=True)
-    with btn_col3:
-        upload_new = st.button("New image", use_container_width=True)
+            # Collect known plots that exist
+            found_plots = []
+            for filename, title, description in TRAINING_PLOTS:
+                filepath = os.path.join(results_dir, filename)
+                if os.path.isfile(filepath):
+                    found_plots.append((filepath, title, description))
 
-    # Handle remove
-    if remove_current:
-        st.session_state.image_history.pop(st.session_state.active_index)
-        if st.session_state.image_history:
-            st.session_state.active_index = max(0, st.session_state.active_index - 1)
-        else:
-            st.session_state.active_index = 0
-        st.rerun()
+            # Also discover any extra images not in the predefined list
+            known_filenames = {fn for fn, _, _ in TRAINING_PLOTS}
+            extra_files = sorted([
+                f for f in os.listdir(results_dir)
+                if Path(f).suffix.lower() in IMAGE_EXTS and f not in known_filenames
+            ])
+            for extra in extra_files:
+                filepath = os.path.join(results_dir, extra)
+                title = Path(extra).stem.replace("_", " ").title()
+                found_plots.append((filepath, title, ""))
 
-    if upload_new:
-        st.info("Use the **Upload file** or **Camera** tab above to add a new image.")
+            if not found_plots:
+                st.markdown(
+                    f'<div class="g-empty" style="padding:2rem 1rem;">'
+                    f'<div class="g-empty-icon" style="width:60px;height:60px;font-size:1.6rem;">📊</div>'
+                    f'<h3 style="font-size:1rem;">No training plots for {model_display}</h3>'
+                    f'<p style="font-size:0.85rem;">'
+                    f'Place <code>results.png</code>, <code>confusion_matrix.png</code>, etc. in '
+                    f'<code>training_results/{model_key}/</code></p>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                continue
 
-    # Run analysis (manual button or automatic on new upload)
-    should_analyse = run_analysis or st.session_state.auto_analyse
-    if st.session_state.auto_analyse:
-        st.session_state.auto_analyse = False
-    if should_analyse:
-        st.markdown("---")
-        if compare_all:
-            st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
-            tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
-            for tab, m_opt in zip(tabs, MODEL_OPTIONS):
-                analyse_and_display(img_rgb, m_opt, container=tab)
-        else:
-            analyse_and_display(img_rgb, model_option)
+            any_plots_found = True
 
-    # Footer
-    st.markdown('<div class="g-footer">Zapfan Smart Cashier &copy; 2026 &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <div class="g-empty">
-        <div class="g-empty-icon">📷</div>
-        <h3>No image yet</h3>
-        <p>Upload a photo or take a picture of your economy rice plate to get started.</p>
-    </div>
-    """, unsafe_allow_html=True)
+            # ── Display Results & Confusion Matrix side-by-side if both exist ──
+            results_path = os.path.join(results_dir, "results.png")
+            confusion_path = os.path.join(results_dir, "confusion_matrix.png")
+            has_results = os.path.isfile(results_path)
+            has_confusion = os.path.isfile(confusion_path)
+
+            if has_results and has_confusion:
+                st.markdown(
+                    f'<div class="g-section">Key Metrics — {model_display}</div>',
+                    unsafe_allow_html=True,
+                )
+                col_res, col_conf = st.columns(2)
+                with col_res:
+                    st.image(
+                        results_path,
+                        caption="Training Results — Metrics over epochs",
+                        use_container_width=True,
+                    )
+                with col_conf:
+                    st.image(
+                        confusion_path,
+                        caption="Confusion Matrix",
+                        use_container_width=True,
+                    )
+            elif has_results:
+                st.markdown(
+                    f'<div class="g-section">Training Results — {model_display}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.image(results_path, caption="Training Results", use_container_width=True)
+            elif has_confusion:
+                st.markdown(
+                    f'<div class="g-section">Confusion Matrix — {model_display}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.image(confusion_path, caption="Confusion Matrix", use_container_width=True)
+
+            # ── Additional plots in expandable section ──
+            extra_plots = [
+                (fp, t, d) for fp, t, d in found_plots
+                if os.path.basename(fp) not in ("results.png", "confusion_matrix.png")
+            ]
+            if extra_plots:
+                with st.expander(
+                    f"Additional evaluation plots ({len(extra_plots)})",
+                    expanded=False,
+                ):
+                    # Display in rows of 2
+                    for i in range(0, len(extra_plots), 2):
+                        cols = st.columns(2)
+                        for j, col in enumerate(cols):
+                            idx = i + j
+                            if idx < len(extra_plots):
+                                fp, title, desc = extra_plots[idx]
+                                with col:
+                                    caption = f"{title} — {desc}" if desc else title
+                                    st.image(fp, caption=caption, use_container_width=True)
