@@ -694,6 +694,8 @@ def _crop_detection(image: np.ndarray, bbox: Tuple[int, int, int, int],
 def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
     """
     Run detection on a single image and compute the checkout.
+    Only 1 plate is detected per image (highest confidence).
+    All food items are priced relative to that single plate (subtotal).
     Returns a CheckoutResult with detections, prices, cropped images, and annotated image.
     """
     image = cv2.imread(image_path)
@@ -711,9 +713,40 @@ def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
     raw_detections = detector.predict(image)
     inference_ms = (time.time() - t0) * 1000
 
+    # ── Separate plate detections from food detections ──
+    # Keep only the single highest-confidence plate
+    best_plate = None
+    best_plate_conf = 0.0
+    food_raws = []
+
+    for raw in raw_detections:
+        if raw["class_name"] == "plate":
+            if raw["confidence"] > best_plate_conf:
+                best_plate_conf = raw["confidence"]
+                best_plate = raw
+        else:
+            food_raws.append(raw)
+
     # Build Detection objects with size + price + cropped image
     detections = []
-    for raw in raw_detections:
+
+    # Add the single plate detection (if found)
+    if best_plate is not None:
+        x1, y1, x2, y2 = best_plate["bbox"]
+        bbox_area = (x2 - x1) * (y2 - y1)
+        area_frac = bbox_area / img_area
+        detections.append(Detection(
+            class_name="plate",
+            confidence=best_plate["confidence"],
+            bbox=best_plate["bbox"],
+            area_fraction=area_frac,
+            size="–",
+            price=0.0,
+            cropped_image=None,
+        ))
+
+    # Add food detections
+    for raw in food_raws:
         x1, y1, x2, y2 = raw["bbox"]
         bbox_area = (x2 - x1) * (y2 - y1)
         area_frac = bbox_area / img_area
@@ -721,10 +754,8 @@ def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
         size  = estimate_size(area_frac)
         price = calculate_price(raw["class_name"], size)
 
-        # Crop the detected food item (skip plate for cropping display)
-        cropped = None
-        if raw["class_name"] != "plate":
-            cropped = _crop_detection(img_clean, raw["bbox"])
+        # Crop the detected food item
+        cropped = _crop_detection(img_clean, raw["bbox"])
 
         detections.append(Detection(
             class_name=raw["class_name"],
@@ -739,13 +770,14 @@ def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
     # Sort: plate first, then by class name
     detections.sort(key=lambda d: (d.class_name != "plate", d.class_name, -d.confidence))
 
-    total = sum(d.price for d in detections)
+    # Subtotal = sum of all food items on this single plate
+    subtotal = sum(d.price for d in detections)
 
     # Annotate image
     annotated = _draw_detections(image.copy(), detections)
 
     # Build receipt panel
-    receipt_panel = _draw_receipt(detections, total, detector.name, inference_ms, img_h)
+    receipt_panel = _draw_receipt(detections, subtotal, detector.name, inference_ms, img_h)
 
     # Combine image + receipt side by side
     combined = _combine_image_receipt(annotated, receipt_panel)
@@ -754,7 +786,7 @@ def checkout(image_path: str, detector, verbose: bool = True) -> CheckoutResult:
         image_path=image_path,
         model_name=detector.name,
         detections=detections,
-        total_price=total,
+        total_price=subtotal,
         inference_time_ms=inference_ms,
         annotated_image=combined,
     )
@@ -846,12 +878,12 @@ def _draw_receipt(detections: List[Detection], total: float,
 
     if non_billable:
         y += 5
-        y = put(f"  Plate(s) detected: {len(non_billable)}", y, 0.40, (120, 120, 120))
+        y = put(f"  Plate detected: 1", y, 0.40, (120, 120, 120))
 
-    # Total
+    # Subtotal
     y += 10
     y = put("================================", y, 0.45, (100, 100, 100))
-    y = put(f"  TOTAL: {currency}{total:.2f}", y, 0.7, (0, 0, 180), 2)
+    y = put(f"  SUBTOTAL: {currency}{total:.2f}", y, 0.7, (0, 0, 180), 2)
     y = put("================================", y, 0.45, (100, 100, 100))
 
     # Item count summary
@@ -910,7 +942,7 @@ def _print_receipt(result: CheckoutResult) -> None:
 
     plate_count = sum(1 for d in result.detections if d.class_name == "plate")
     if plate_count:
-        print(f"\n  Plate(s): {plate_count} detected")
+        print(f"\n  Plate: 1 detected")
 
     # Cropped items summary
     crops = result.cropped_images
@@ -918,7 +950,7 @@ def _print_receipt(result: CheckoutResult) -> None:
         print(f"  🔍 Cropped food items: {len(crops)}")
 
     print(f"{'─'*50}")
-    print(f"  💰 TOTAL: {c}{result.total_price:.2f}")
+    print(f"  💰 SUBTOTAL: {c}{result.total_price:.2f}")
     print(f"{'='*50}\n")
 
 

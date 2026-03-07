@@ -466,12 +466,13 @@ def run_ultralytics(model, img_rgb):
     -------
     valid_foods : list[dict]
         Detected food items (name, box, score).
-    plates : list[dict]
-        All detected plates (box, score), sorted by x-coordinate.
+    plate : dict or None
+        The single highest-confidence plate (box, score), or None.
     """
     results = model.predict(img_rgb, conf=0.25, iou=0.45, verbose=False)
     valid_foods = []
-    plates = []
+    best_plate = None
+    best_plate_conf = 0
 
     for r in results:
         for box in r.boxes:
@@ -485,7 +486,9 @@ def run_ultralytics(model, img_rgb):
             task_name = CLASSES[cls_id]
 
             if task_name == 'plate':
-                plates.append({'box': (x1, y1, x2, y2), 'score': conf})
+                if conf > best_plate_conf:
+                    best_plate_conf = conf
+                    best_plate = {'box': (x1, y1, x2, y2), 'score': conf}
             else:
                 valid_foods.append({
                     'name': task_name,
@@ -493,9 +496,7 @@ def run_ultralytics(model, img_rgb):
                     'score': conf,
                 })
 
-    # Sort plates left-to-right so numbering is consistent
-    plates.sort(key=lambda p: p['box'][0])
-    return valid_foods, plates
+    return valid_foods, best_plate
 
 
 def run_frcnn(model, img_rgb):
@@ -505,8 +506,8 @@ def run_frcnn(model, img_rgb):
     -------
     valid_foods : list[dict]
         Detected food items (name, box, score).
-    plates : list[dict]
-        All detected plates (box, score), sorted by x-coordinate.
+    plate : dict or None
+        The single highest-confidence plate (box, score), or None.
     """
     device = next(model.parameters()).device
     img_tensor = torch.as_tensor(img_rgb, dtype=torch.float32).permute(2, 0, 1) / 255.0
@@ -527,7 +528,8 @@ def run_frcnn(model, img_rgb):
     scores = scores[keep].cpu().numpy()
 
     valid_foods = []
-    plates = []
+    best_plate = None
+    best_plate_conf = 0
 
     for i, box in enumerate(boxes):
         x1, y1, x2, y2 = map(int, box)
@@ -540,7 +542,9 @@ def run_frcnn(model, img_rgb):
         conf = scores[i]
 
         if task_name == 'plate':
-            plates.append({'box': (x1, y1, x2, y2), 'score': conf})
+            if conf > best_plate_conf:
+                best_plate_conf = conf
+                best_plate = {'box': (x1, y1, x2, y2), 'score': conf}
         else:
             valid_foods.append({
                 'name': task_name,
@@ -548,175 +552,90 @@ def run_frcnn(model, img_rgb):
                 'score': conf,
             })
 
-    # Sort plates left-to-right so numbering is consistent
-    plates.sort(key=lambda p: p['box'][0])
-    return valid_foods, plates
+    return valid_foods, best_plate
 
 
-def _intersection_area(box_a, box_b):
-    """Compute intersection area between two (x1, y1, x2, y2) boxes."""
-    x1 = max(box_a[0], box_b[0])
-    y1 = max(box_a[1], box_b[1])
-    x2 = min(box_a[2], box_b[2])
-    y2 = min(box_a[3], box_b[3])
-    if x2 > x1 and y2 > y1:
-        return (x2 - x1) * (y2 - y1)
-    return 0
+def draw_results(img_rgb, valid_foods, plate):
+    """Draw bounding boxes, labels, and subtotal on the image.
 
-
-def assign_foods_to_plates(valid_foods, plates):
-    """Assign each food item to its most-overlapping plate.
-
-    Returns a dict  plate_index -> [food_items].
-    Index -1 is used when no plates were detected at all.
-    """
-    if not plates:
-        return {-1: list(valid_foods)}
-
-    assignments = {i: [] for i in range(len(plates))}
-
-    for food in valid_foods:
-        fx1, fy1, fx2, fy2 = food['box']
-        food_cx, food_cy = (fx1 + fx2) / 2, (fy1 + fy2) / 2
-        food_area = max(1, (fx2 - fx1) * (fy2 - fy1))
-
-        best_plate = -1
-        best_overlap = 0
-
-        for pi, plate in enumerate(plates):
-            overlap = _intersection_area(food['box'], plate['box'])
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_plate = pi
-
-        # If overlap covers > 30 % of the food area, assign directly
-        if best_plate >= 0 and best_overlap > 0.3 * food_area:
-            assignments[best_plate].append(food)
-        else:
-            # Fall back to nearest plate by center distance
-            min_dist = float('inf')
-            nearest = 0
-            for pi, plate in enumerate(plates):
-                px1, py1, px2, py2 = plate['box']
-                plate_cx, plate_cy = (px1 + px2) / 2, (py1 + py2) / 2
-                dist = ((food_cx - plate_cx) ** 2 + (food_cy - plate_cy) ** 2) ** 0.5
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest = pi
-            assignments[nearest].append(food)
-
-    return assignments
-
-
-# Distinct colours for plate bounding boxes when multiple plates are present
-_PLATE_COLORS = [
-    (0, 255, 255), (255, 165, 0), (255, 0, 255),
-    (128, 255, 0), (0, 128, 255), (255, 128, 128),
-]
-
-
-def draw_results(img_rgb, valid_foods, plates, plate_assignments):
-    """Draw bounding boxes, labels, and per-plate prices on the image.
+    Parameters
+    ----------
+    img_rgb : ndarray – input image (RGB).
+    valid_foods : list[dict] – detected food items.
+    plate : dict or None – single detected plate (box, score).
 
     Returns
     -------
     img_display : ndarray  – annotated image
-    plate_results : list[dict] – per-plate receipt data
-    grand_total : float
+    receipt_lines : list[dict] – receipt line items
+    subtotal : float – total price for this plate
     all_cropped : list[tuple] – (name, score, cropped_img)
     """
     img_display = img_rgb.copy()
     img_clean = img_rgb.copy()
-    grand_total = 0.0
-    plate_results = []
     all_cropped = []
-    num_plates = len(plates) if plates else 1
 
-    # --- Draw every detected plate box ---
-    for pi, plate in enumerate(plates):
-        px1, py1, px2, py2 = plate['box']
-        p_color = _PLATE_COLORS[pi % len(_PLATE_COLORS)]
-        cv2.rectangle(img_display, (px1, py1), (px2, py2), p_color, 3)
-        p_label = (f"Plate {pi + 1} ({plate['score']:.2f})"
-                   if num_plates > 1
-                   else f"Plate ({plate['score']:.2f})")
-        cv2.putText(img_display, p_label,
-                    (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, p_color, 2)
+    # --- Determine the plate box for portion sizing ---
+    if plate is not None:
+        plate_box = plate['box']
+        px1, py1, px2, py2 = plate_box
+        cv2.rectangle(img_display, (px1, py1), (px2, py2), (0, 255, 255), 3)
+        cv2.putText(img_display, f"Plate ({plate['score']:.2f})",
+                    (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    else:
+        # No plate detected — estimate from food boundaries
+        min_x = min(d['box'][0] for d in valid_foods)
+        min_y = min(d['box'][1] for d in valid_foods)
+        max_x = max(d['box'][2] for d in valid_foods)
+        max_y = max(d['box'][3] for d in valid_foods)
+        plate_box = (min_x, min_y, max_x, max_y)
+        cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y),
+                      (255, 255, 255), 2, cv2.LINE_AA)
 
-    # --- Process each plate group ---
-    for plate_idx in sorted(plate_assignments.keys()):
-        foods = plate_assignments[plate_idx]
-        if not foods:
-            continue
+    # --- Process all food items on this single plate ---
+    subtotal = 0.0
+    receipt_lines = []
 
-        plate_num = plate_idx + 1 if plate_idx >= 0 else 1
+    for item in valid_foods:
+        task_name = item['name']
+        conf = item['score']
+        x1, y1, x2, y2 = item['box']
+        size_label = get_portion_size((x1, y1, x2, y2), plate_box)
 
-        # Determine plate box and area for portion sizing
-        if 0 <= plate_idx < len(plates):
-            px1, py1, px2, py2 = plates[plate_idx]['box']
-            current_plate_box = (px1, py1, px2, py2)
-        else:
-            # No plate detected — estimate from food boundaries
-            min_x = min(d['box'][0] for d in foods)
-            min_y = min(d['box'][1] for d in foods)
-            max_x = max(d['box'][2] for d in foods)
-            max_y = max(d['box'][3] for d in foods)
-            current_plate_box = (min_x, min_y, max_x, max_y)
-            cv2.rectangle(img_display, (min_x, min_y), (max_x, max_y),
-                          (255, 255, 255), 2, cv2.LINE_AA)
+        multiplier = SIZE_MULTIPLIERS[size_label]
+        final_price = BASE_PRICES[task_name] * multiplier
+        subtotal += final_price
 
-        plate_total = 0.0
-        receipt_lines = []
-
-        for item in foods:
-            task_name = item['name']
-            conf = item['score']
-            x1, y1, x2, y2 = item['box']
-            size_label = get_portion_size((x1, y1, x2, y2), current_plate_box)
-
-            multiplier = SIZE_MULTIPLIERS[size_label]
-            final_price = BASE_PRICES[task_name] * multiplier
-            plate_total += final_price
-
-            receipt_lines.append({
-                'item': task_name.capitalize(),
-                'size': size_label,
-                'price': final_price,
-            })
-
-            # Crop with 10% padding
-            pad_x = int((x2 - x1) * 0.10)
-            pad_y = int((y2 - y1) * 0.10)
-            crop_y1 = max(0, y1 - pad_y)
-            crop_y2 = min(img_clean.shape[0], y2 + pad_y)
-            crop_x1 = max(0, x1 - pad_x)
-            crop_x2 = min(img_clean.shape[1], x2 + pad_x)
-            if crop_y2 > crop_y1 and crop_x2 > crop_x1:
-                cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
-                all_cropped.append((task_name, conf, cropped_part))
-
-            # Draw bounding box
-            color = COLORS[task_name]
-            rgb = (color[2], color[1], color[0])
-            cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
-
-            label = f"{task_name.capitalize()} ({size_label}) {CURRENCY}{final_price:.2f}"
-            if num_plates > 1:
-                label = f"P{plate_num} {label}"
-            t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)),
-                          (x1 + t_size[0], max(y1, 10)), rgb, -1)
-            cv2.putText(img_display, label, (x1, max(y1 - 5, 15)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-        grand_total += plate_total
-        plate_results.append({
-            'plate_num': plate_num,
-            'receipt_lines': receipt_lines,
-            'total': plate_total,
+        receipt_lines.append({
+            'item': task_name.capitalize(),
+            'size': size_label,
+            'price': final_price,
         })
 
-    return img_display, plate_results, grand_total, all_cropped
+        # Crop with 10% padding
+        pad_x = int((x2 - x1) * 0.10)
+        pad_y = int((y2 - y1) * 0.10)
+        crop_y1 = max(0, y1 - pad_y)
+        crop_y2 = min(img_clean.shape[0], y2 + pad_y)
+        crop_x1 = max(0, x1 - pad_x)
+        crop_x2 = min(img_clean.shape[1], x2 + pad_x)
+        if crop_y2 > crop_y1 and crop_x2 > crop_x1:
+            cropped_part = img_clean[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+            all_cropped.append((task_name, conf, cropped_part))
+
+        # Draw bounding box
+        color = COLORS[task_name]
+        rgb = (color[2], color[1], color[0])
+        cv2.rectangle(img_display, (x1, y1), (x2, y2), rgb, 3)
+
+        label = f"{task_name.capitalize()} ({size_label}) {CURRENCY}{final_price:.2f}"
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        cv2.rectangle(img_display, (x1, max(y1 - t_size[1] - 10, 0)),
+                      (x1 + t_size[0], max(y1, 10)), rgb, -1)
+        cv2.putText(img_display, label, (x1, max(y1 - 5, 15)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    return img_display, receipt_lines, subtotal, all_cropped
 
 
 # ==============================================================================
@@ -742,33 +661,30 @@ def analyse_and_display(img_rgb, model_option, container=None):
             return
 
         # Run inference
-        with st.spinner(f"Analyzing your plate(s) with {model_option}..."):
+        with st.spinner(f"Analyzing your plate with {model_option}..."):
             if "Faster R-CNN" in model_option:
-                valid_foods, plates = run_frcnn(model, img_rgb)
+                valid_foods, plate = run_frcnn(model, img_rgb)
             else:
-                valid_foods, plates = run_ultralytics(model, img_rgb)
+                valid_foods, plate = run_ultralytics(model, img_rgb)
 
         if not valid_foods:
             st.warning(f"[{model_option}] No food items detected. Try a different model or image.")
             return
 
-        # Assign foods to plates & draw
-        plate_assignments = assign_foods_to_plates(valid_foods, plates)
-        img_display, plate_results, grand_total, all_cropped = draw_results(
-            img_rgb, valid_foods, plates, plate_assignments
+        # Draw results for single plate
+        img_display, receipt_lines, subtotal, all_cropped = draw_results(
+            img_rgb, valid_foods, plate
         )
 
-        num_plates = len(plates) if plates else 1
-        total_items = sum(len(pr['receipt_lines']) for pr in plate_results)
+        total_items = len(receipt_lines)
         model_label = model_option.split(" (")[0]
 
         # ---- Summary stat chips (Google style) ----
-        plates_word = "Plates" if num_plates != 1 else "Plate"
         stat_html = (
             '<div class="g-stats">'
-            f'<div class="g-chip"><span class="g-chip-num">{num_plates}</span><span class="g-chip-label">{plates_word}</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">1</span><span class="g-chip-label">Plate</span></div>'
             f'<div class="g-chip"><span class="g-chip-num">{total_items}</span><span class="g-chip-label">Items</span></div>'
-            f'<div class="g-chip"><span class="g-chip-num">{CURRENCY}{grand_total:.2f}</span><span class="g-chip-label">Total</span></div>'
+            f'<div class="g-chip"><span class="g-chip-num">{CURRENCY}{subtotal:.2f}</span><span class="g-chip-label">Subtotal</span></div>'
             '</div>'
         )
         st.markdown(stat_html, unsafe_allow_html=True)
@@ -779,11 +695,9 @@ def analyse_and_display(img_rgb, model_option, container=None):
         with col_img:
             st.markdown('<div class="g-section">Detection result</div>', unsafe_allow_html=True)
             st.image(img_display, use_container_width=True)
-            if num_plates > 1:
-                st.info(f"**{num_plates} plates** detected — prices calculated per plate.")
 
         with col_receipt:
-            # Build receipt using native Streamlit components (robust across all environments)
+            # Build receipt using native Streamlit components
             st.markdown(
                 f'<div class="receipt-card"><div class="receipt-header">'
                 f'Receipt <span class="model-tag">{model_label}</span>'
@@ -791,51 +705,26 @@ def analyse_and_display(img_rgb, model_option, container=None):
                 unsafe_allow_html=True,
             )
 
-            for pr in plate_results:
-                if num_plates > 1:
-                    pnum = pr["plate_num"]
-                    st.markdown(
-                        f'<div class="plate-badge">Plate {pnum}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                for line in pr['receipt_lines']:
-                    item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
-                    i_name = line["item"]
-                    i_size = line["size"]
-                    i_price = line["price"]
-                    st.markdown(
-                        f'<div class="receipt-item">'
-                        f'<span class="label">{item_emoji} {i_name}'
-                        f'<span class="tag">{i_size}</span></span>'
-                        f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                if num_plates > 1:
-                    p_total = pr["total"]
-                    st.markdown(
-                        f'<div class="receipt-total">'
-                        f'<span>Subtotal</span><span>{CURRENCY}{p_total:.2f}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-            if num_plates > 1:
+            for line in receipt_lines:
+                item_emoji = {"Meat": "🥩", "Rice": "🍚", "Vege": "🥬"}.get(line['item'], "🍽️")
+                i_name = line["item"]
+                i_size = line["size"]
+                i_price = line["price"]
                 st.markdown(
-                    f'<div class="receipt-grand">'
-                    f'<span>Grand Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
+                    f'<div class="receipt-item">'
+                    f'<span class="label">{item_emoji} {i_name}'
+                    f'<span class="tag">{i_size}</span></span>'
+                    f'<span class="price">{CURRENCY}{i_price:.2f}</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-            else:
-                st.markdown(
-                    f'<div class="receipt-total">'
-                    f'<span>Total</span><span>{CURRENCY}{grand_total:.2f}</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
+
+            st.markdown(
+                f'<div class="receipt-total">'
+                f'<span>Subtotal</span><span>{CURRENCY}{subtotal:.2f}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
         # ---- Cropped items ----
         if all_cropped:
