@@ -986,6 +986,15 @@ with st.sidebar:
     compare_all = st.checkbox("Compare all models side-by-side")
 
     st.markdown("---")
+    
+    # Project info card
+    st.markdown("""
+    <div class="m-card-flat">
+        <p style="margin:0;font-size:0.75rem;color:#9aa0a6;font-weight:500;letter-spacing:0.5px;">ACADEMIC PROJECT</p>
+        <p style="margin:4px 0 0 0;font-size:0.9rem;color:#202124;font-weight:500;">Mixed Rice Price Prediction</p>
+        <p style="margin:2px 0 0 0;font-size:0.75rem;color:#5f6368;">BMCS2203 · Tutorial Group 5</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Google-style price menu
     st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Price Menu</p>', unsafe_allow_html=True)
@@ -1021,10 +1030,174 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-    st.markdown('<p style="font-size:0.75rem;color:#9aa0a6;text-align:center;">Zapfan © 2026 &middot; Powered by Streamlit</p>', unsafe_allow_html=True)
+    st.markdown("""
+    <p style="font-size:0.7rem;color:#9aa0a6;text-align:center;">
+    <strong>Zapfan Smart Cashier</strong> © 2026<br/>
+    <strong>TARUMT</strong> BMCS2203 Artificial Intelligence<br/>
+    <strong>Team:</strong> Leong · Ooi · Chaw<br/>
+    <a href="https://streamlit.io" target="_blank" style="color:#1a73e8;text-decoration:none;">Powered by Streamlit</a>
+    </p>
+    """, unsafe_allow_html=True)
 
 # --- Main Area: Top-level page tabs ---
-page_checkout, page_training = st.tabs(["🍽️ Smart Checkout", "📊 Training Results"])
+page_about, page_checkout, page_training = st.tabs(["ℹ️ About", "🍽️ Smart Checkout", "📊 Training Results"])
+
+# ==============================================================================
+# Page 0: About Project
+# ==============================================================================
+with page_about:
+    about_col1, about_col2 = st.columns([1.5, 1])
+    
+    with about_col1:
+        st.markdown("""
+        ### 📚 Project Overview
+        
+        **Mixed Rice Price Prediction by using Object Classification using Deep Learning**
+        
+        #### Problem Background
+        "Economy rice" (known locally as *Zapfan*) is a staple dining option in university cafeterias. 
+        However, manual checkout and pricing remains subjective and error-prone, leading to:
+        
+        - 🔴 **Inconsistent pricing** — Different costs for identical portions based on cashier judgment
+        - ⏱️ **Operational bottlenecks** — Long queues during peak lunch hours
+        - 😞 **Student dissatisfaction** — Lack of transparent, standardized pricing
+        
+        Our solution? **AI-powered automated visual recognition and pricing.**
+        
+        #### Project Objectives
+        1. **Develop** a functional computer vision prototype using Python
+        2. **Implement & evaluate** three distinct AI object detection architectures
+        3. **Design** a programmatic pricing algorithm based on portion size estimation
+        4. **Deploy** a practical web interface for real-world cafeteria usage
+        
+        #### Motivation
+        This project combines practical problem-solving with advanced machine learning techniques,
+        addressing real operational challenges in campus dining while demonstrating cutting-edge
+        computer vision capabilities.
+        """)
+    
+    with about_col2:
+        st.markdown("""
+        ### 👥 Team Members
+        
+        **BMCS2203 AI Assignment**  
+        Tutorial Group 5  
+        Tutor: Ms Yan Yen Wei
+        
+        ---
+        
+        | # | Name | Role | 
+        |---|------|------|
+        | 1 | **Leong Kai Sheng** | Faster R-CNN |
+        | 2 | **Ooi Jun Kang** | YOLOv8 |
+        | 3 | **Chaw Chun Jia** | RT-DETR |
+        
+        **Programme:** BSc Information Technology (Hons) in Software Systems Development  
+        **Year:** Y2S3  
+        **Institution:** TARUMT
+        """)
+    
+    st.divider()
+    
+    st.markdown("""
+    ### 🏆 Model Performance Comparison
+    
+    **Final Results:** Rigorous multi-architecture benchmarking on the food_dataset
+    """)
+    
+    # Performance metrics table
+    performance_data = {
+        "Model": ["**YOLOv8**", "**RT-DETR**", "**Faster R-CNN**"],
+        "mAP@50": ["0.8649", "0.9596", "0.9950"],
+        "Inference Speed": ["5.26 ms/img", "38.15 ms/img", "92.12 ms/img"],
+        "Best For": ["⚡ Speed & Edge", "⚖️ Balanced", "🎯 Accuracy"],
+    }
+    
+    perf_col1, perf_col2, perf_col3 = st.columns(3)
+    
+    with perf_col1:
+        st.metric(
+            label="**YOLOv8** (Single-Stage CNN)",
+            value="0.8649 mAP",
+            delta="5.26 ms/img 📍",
+            delta_color="inverse",
+        )
+        st.caption("**Strength:** Extremely fast inference, ideal for real-time edge deployment")
+        st.caption("**Weakness:** Slightly lower accuracy on complex occlusions")
+    
+    with perf_col2:
+        st.metric(
+            label="**RT-DETR** (Transformer)",
+            value="0.9596 mAP",
+            delta="38.15 ms/img ⏱️",
+            delta_color="normal",
+        )
+        st.caption("**Strength:** Excellent balance of speed & accuracy; handles overlapping items well")
+        st.caption("**Weakness:** Moderate inference time")
+    
+    with perf_col3:
+        st.metric(
+            label="**Faster R-CNN** (Two-Stage CNN)",
+            value="0.9950 mAP",
+            delta="92.12 ms/img 🎯",
+            delta_color="normal",
+        )
+        st.caption("**Strength:** Near-perfect accuracy; highest spatial localization precision")
+        st.caption("**Weakness:** Slow inference; requires GPU support")
+    
+    st.divider()
+    
+    # Technical details
+    col_tech1, col_tech2 = st.columns(2)
+    
+    with col_tech1:
+        st.markdown("""
+        ### 🔧 Technologies Used
+        
+        - **Ultralytics** — YOLOv8 & RT-DETR model training
+        - **PyTorch** — Faster R-CNN custom implementation
+        - **OpenCV (cv2)** — Image processing & visualization
+        - **Streamlit** — Interactive web deployment
+        - **Python** — Core development language
+        """)
+    
+    with col_tech2:
+        st.markdown("""
+        ### 📊 Dataset
+        
+        **food_dataset** with mixed annotation formats:
+        - Standard bounding boxes (YOLO format)
+        - Segmentation polygons (precise outlines)
+        
+        **Classes (4):**
+        - 🥩 Meat (ID: 0)
+        - 🍚 Rice (ID: 2)
+        - 🥬 Vegetable (ID: 3)
+        - 🍽️ Plate (ID: 1)
+        
+        **Split:** 80% training, 20% validation
+        """)
+    
+    st.divider()
+    
+    st.markdown("""
+    ### 💡 Key Achievements
+    
+    ✅ **Rigorous Multi-Architecture Benchmarking** — Successfully implemented and compared three distinct paradigms of object detection
+    
+    ✅ **Custom Data Engineering** — Seamless translation of YOLO polygon formats to PyTorch tensor requirements
+    
+    ✅ **Spatial Pricing Algorithm** — Automated portion size estimation based on bbox area ratios
+    
+    ✅ **End-to-End Deployment** — Full prototype implementation with interactive Streamlit web interface
+    
+    ### 🚀 Future Enhancements
+    
+    - Instance segmentation (exact pixel-level masks) for precise sizing
+    - 3D depth sensing (RGB-D cameras) for volumetric accuracy
+    - Edge AI optimization (quantization, TensorRT) for low-cost deployment
+    - Active learning pipeline for continuous model improvement
+    """)
 
 # ==============================================================================
 # Page 1: Smart Checkout
@@ -1147,7 +1320,7 @@ with page_checkout:
                 analyse_and_display(img_rgb, model_option)
 
         # Footer
-        st.markdown('<div class="g-footer">Zapfan Smart Cashier &copy; 2026 &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
+        st.markdown('<div class="g-footer">🏆 Zapfan Smart Cashier © 2026 &middot; TARUMT BMCS2203 AI Project &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="g-empty">
