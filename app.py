@@ -1168,6 +1168,8 @@ if "last_camera_id" not in st.session_state:
     st.session_state.last_camera_id = None
 if "camera_counter" not in st.session_state:
     st.session_state.camera_counter = 0
+if "warmup_models" not in st.session_state:
+    st.session_state.warmup_models = True
 
 # ==============================================================================
 # Streamlit UI
@@ -1211,6 +1213,14 @@ with st.sidebar:
 
     model_option = st.selectbox("AI Model", options=MODEL_OPTIONS, index=0)
     compare_all = st.checkbox("Compare all models side-by-side")
+
+    st.markdown("---")
+    st.markdown(
+        '<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Performance</p>',
+        unsafe_allow_html=True,
+    )
+    st.toggle("Warm up models on load", key="warmup_models")
+    st.caption("Improves first-run speed by pre-loading model kernels.")
 
     customize_settings = st.toggle("Customize pricing and detection", value=False, key="customize_settings")
     if customize_settings:
@@ -1435,6 +1445,20 @@ with page_about:
         **Year:** Y2S3  
         **Institution:** TARUMT
         """)
+
+    st.markdown(
+        """
+        <div class="m-card-flat">
+            <p style="margin:0 0 6px 0;font-size:0.85rem;color:#5f6368;">Quick Start</p>
+            <ul style="margin:0 0 0 16px;">
+                <li>Upload a plate photo or use the Camera tab</li>
+                <li>Optionally enable Quick Settings to tune pricing</li>
+                <li>Add demo images under <code>demo_images/</code> for testing</li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     
     st.divider()
     
@@ -1543,7 +1567,11 @@ with page_about:
 # ==============================================================================
 with page_checkout:
     st.markdown('<div class="g-section">Add an image</div>', unsafe_allow_html=True)
-    input_tab_upload, input_tab_camera = st.tabs(["Upload file", "Camera"])
+    input_tab_upload, input_tab_camera, input_tab_demo = st.tabs([
+        "Upload file",
+        "Camera",
+        "Demo images",
+    ])
 
     with input_tab_upload:
         uploaded_file = st.file_uploader(
@@ -1610,6 +1638,37 @@ with page_checkout:
                     st.session_state.image_history.append((name, cam_rgb))
                     st.session_state.active_index = len(st.session_state.image_history) - 1
                     st.session_state.last_camera_id = current_camera_id
+                    st.session_state.new_upload_pending = True
+                    st.session_state.auto_analyse = True
+                    st.session_state.upload_counter += 1
+                    st.rerun()
+
+    with input_tab_demo:
+        demo_files = _list_demo_images()
+        if not demo_files:
+            st.info(
+                "No demo images found. Add JPG/PNG files to the demo_images/ folder."
+            )
+        else:
+            st.caption("Select a bundled demo image for quick testing.")
+            demo_choice = st.selectbox("Demo image", demo_files)
+            if st.button("Use demo image", type="primary", use_container_width=True):
+                demo_img = _load_demo_image(demo_choice)
+                if demo_img is None:
+                    st.error("Could not load the selected demo image.")
+                else:
+                    existing_names = [n for n, _ in st.session_state.image_history]
+                    name = demo_choice
+                    counter = 2
+                    while name in existing_names:
+                        dot = demo_choice.rfind('.')
+                        if dot != -1:
+                            name = f"{demo_choice[:dot]} ({counter}){demo_choice[dot:]}"
+                        else:
+                            name = f"{demo_choice} ({counter})"
+                        counter += 1
+                    st.session_state.image_history.append((name, demo_img))
+                    st.session_state.active_index = len(st.session_state.image_history) - 1
                     st.session_state.new_upload_pending = True
                     st.session_state.auto_analyse = True
                     st.session_state.upload_counter += 1
@@ -1734,6 +1793,15 @@ with page_training:
     st.caption(
         "View training metrics, confusion matrices, and evaluation curves for all three models. "
         "Place image files in the `training_results/<model>/` folders."
+    )
+    st.markdown(
+        """
+        <div class="m-card-flat">
+            <p style="margin:0 0 6px 0;font-size:0.85rem;color:#5f6368;">Tip</p>
+            <p style="margin:0;font-size:0.85rem;">If plots do not show up, verify file names like <code>results.png</code> and <code>confusion_matrix.png</code> exist in each model folder.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     # --- Discover available plots per model ---
