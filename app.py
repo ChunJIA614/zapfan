@@ -928,7 +928,10 @@ def analyse_and_display(img_rgb, model_option, container=None):
         # ── Load detector ─────────────────────────────────────────────────
         model_key = _resolve_model_key(model_option)
         with st.spinner(f"Loading {model_option} model..."):
-            detector = get_detector(model_key)
+            detector = get_detector(
+                model_key,
+                warmup=st.session_state.get("warmup_models", True),
+            )
 
         if detector is None:
             st.error(
@@ -1651,7 +1654,10 @@ with page_checkout:
                 st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
                 available_options = [
                     m for m in MODEL_OPTIONS
-                    if get_detector(_resolve_model_key(m)) is not None
+                    if get_detector(
+                        _resolve_model_key(m),
+                        warmup=st.session_state.get("warmup_models", True),
+                    ) is not None
                 ]
                 if not available_options:
                     st.error("No model weights found. Please add model files to the project.")
@@ -1669,7 +1675,10 @@ with page_checkout:
                 run_batch = st.button("Run batch analysis", use_container_width=True)
                 if run_batch:
                     model_key = _resolve_model_key(model_option)
-                    detector = get_detector(model_key)
+                    detector = get_detector(
+                        model_key,
+                        warmup=st.session_state.get("warmup_models", True),
+                    )
                     if detector is None:
                         st.error("Selected model file is missing. Please choose another model.")
                     else:
