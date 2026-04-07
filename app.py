@@ -14,6 +14,7 @@ import time
 import io
 import csv
 import copy
+import re
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -898,6 +899,13 @@ def _result_to_csv(result: CheckoutResult) -> str:
     return output.getvalue()
 
 
+def _safe_key(value: str) -> str:
+    """Make a safe, stable key fragment for Streamlit widgets."""
+    if not value:
+        return ""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", value)
+
+
 def _list_demo_images() -> List[str]:
     """Return a sorted list of demo image filenames in demo_images/."""
     if not os.path.isdir(DEMO_IMAGES_DIR):
@@ -925,7 +933,13 @@ def _load_demo_image(filename: str) -> Optional[np.ndarray]:
 # Streamlit Display — analyse & render results
 # ==============================================================================
 
-def analyse_and_display(img_rgb, model_option, container=None, key_prefix=""):
+def analyse_and_display(
+    img_rgb,
+    model_option,
+    container=None,
+    key_prefix="",
+    key_suffix="",
+):
     """Load the chosen model, run checkout engine, and render results."""
     if container is None:
         container = st.container()
@@ -1052,13 +1066,19 @@ def analyse_and_display(img_rgb, model_option, container=None, key_prefix=""):
 
             # ── Downloads ───────────────────────────────────────────────
             dl_col1, dl_col2, dl_col3 = st.columns(3)
+            key_base = "_".join(
+                [
+                    _safe_key(key_prefix),
+                    _safe_key(key_suffix),
+                ]
+            ).strip("_")
             with dl_col1:
                 st.download_button(
                     "Download annotated image",
                     data=_image_to_png_bytes(result.annotated_image),
                     file_name="zapfan_annotated.png",
                     mime="image/png",
-                    key=f"dl_img_{key_prefix}",
+                    key=f"dl_img_{key_base}",
                     use_container_width=True,
                 )
             with dl_col2:
@@ -1067,7 +1087,7 @@ def analyse_and_display(img_rgb, model_option, container=None, key_prefix=""):
                     data=_result_to_receipt_text(result),
                     file_name="zapfan_receipt.txt",
                     mime="text/plain",
-                    key=f"dl_txt_{key_prefix}",
+                    key=f"dl_txt_{key_base}",
                     use_container_width=True,
                 )
             with dl_col3:
@@ -1076,7 +1096,7 @@ def analyse_and_display(img_rgb, model_option, container=None, key_prefix=""):
                     data=_result_to_csv(result),
                     file_name="zapfan_receipt.csv",
                     mime="text/csv",
-                    key=f"dl_csv_{key_prefix}",
+                    key=f"dl_csv_{key_base}",
                     use_container_width=True,
                 )
 
@@ -1752,12 +1772,19 @@ with page_checkout:
                     tabs = st.tabs([m.split(" (")[0] for m in available_options])
                     for tab, m_opt in zip(tabs, available_options):
                         key_prefix = _resolve_model_key(m_opt)
-                        analyse_and_display(img_rgb, m_opt, container=tab, key_prefix=key_prefix)
+                        analyse_and_display(
+                            img_rgb,
+                            m_opt,
+                            container=tab,
+                            key_prefix=key_prefix,
+                            key_suffix=active_name,
+                        )
             else:
                 analyse_and_display(
                     img_rgb,
                     model_option,
                     key_prefix=_resolve_model_key(model_option),
+                    key_suffix=active_name,
                 )
 
         # Batch analysis across history
