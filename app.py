@@ -925,7 +925,7 @@ def _load_demo_image(filename: str) -> Optional[np.ndarray]:
 # Streamlit Display — analyse & render results
 # ==============================================================================
 
-def analyse_and_display(img_rgb, model_option, container=None):
+def analyse_and_display(img_rgb, model_option, container=None, key_prefix=""):
     """Load the chosen model, run checkout engine, and render results."""
     if container is None:
         container = st.container()
@@ -1058,6 +1058,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
                     data=_image_to_png_bytes(result.annotated_image),
                     file_name="zapfan_annotated.png",
                     mime="image/png",
+                    key=f"dl_img_{key_prefix}",
                     use_container_width=True,
                 )
             with dl_col2:
@@ -1066,6 +1067,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
                     data=_result_to_receipt_text(result),
                     file_name="zapfan_receipt.txt",
                     mime="text/plain",
+                    key=f"dl_txt_{key_prefix}",
                     use_container_width=True,
                 )
             with dl_col3:
@@ -1074,6 +1076,7 @@ def analyse_and_display(img_rgb, model_option, container=None):
                     data=_result_to_csv(result),
                     file_name="zapfan_receipt.csv",
                     mime="text/csv",
+                    key=f"dl_csv_{key_prefix}",
                     use_container_width=True,
                 )
 
@@ -1748,9 +1751,14 @@ with page_checkout:
                 else:
                     tabs = st.tabs([m.split(" (")[0] for m in available_options])
                     for tab, m_opt in zip(tabs, available_options):
-                        analyse_and_display(img_rgb, m_opt, container=tab)
+                        key_prefix = _resolve_model_key(m_opt)
+                        analyse_and_display(img_rgb, m_opt, container=tab, key_prefix=key_prefix)
             else:
-                analyse_and_display(img_rgb, model_option)
+                analyse_and_display(
+                    img_rgb,
+                    model_option,
+                    key_prefix=_resolve_model_key(model_option),
+                )
 
         # Batch analysis across history
         if len(st.session_state.image_history) > 1:
