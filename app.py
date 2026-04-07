@@ -438,6 +438,12 @@ TRAINING_RESULTS_DIR = os.path.join(BASE_DIR, "training_results")
 # Optional demo images directory
 DEMO_IMAGES_DIR = os.path.join(BASE_DIR, "demo_images")
 
+# Optional comparison images
+COMPARISON_IMAGES = [
+    os.path.join(BASE_DIR, "yolo vs rtdetr.png"),
+    os.path.join(BASE_DIR, "rtdetr vs rcnn.png"),
+]
+
 # Map model keys → training results subfolder + display name
 MODEL_RESULTS_MAP = {
     "yolo":  {"dir": os.path.join(TRAINING_RESULTS_DIR, "yolo"),  "name": "YOLOv8"},
@@ -1540,8 +1546,27 @@ with page_about:
         
         **Split:** 80% training, 20% validation
         """)
-    
+
     st.divider()
+
+    st.markdown("### 📈 Model Comparison (Uploaded Results)")
+    comparison_found = False
+    for img_path in COMPARISON_IMAGES:
+        if os.path.isfile(img_path):
+            comparison_found = True
+            st.image(img_path, use_container_width=True)
+
+    if not comparison_found:
+        st.info("No comparison images found. Add images like 'yolo vs rtdetr.png' to the project root.")
+
+    st.markdown(
+        """
+        ### ✅ Conclusion: Optimal Model
+        Based on the uploaded comparison results, **RT-DETR** provides the best balance between accuracy
+        and speed for real cafeteria use. It handles overlapping food items better than YOLO and runs
+        significantly faster than Faster R-CNN while maintaining high mAP.
+        """
+    )
     
     st.markdown("""
     ### 💡 Key Achievements
