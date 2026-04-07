@@ -11,6 +11,9 @@ import cv2
 import numpy as np
 import os
 import time
+import io
+import csv
+import copy
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -399,6 +402,10 @@ CONFIG = {
     "iou_threshold":        0.45,
     "imgsz":                640,
 
+    # ── Size reference ─────────────────────────────────────────────────
+    # "image": use full image area, "plate": use detected plate area
+    "size_reference": "image",
+
     # ── Visualization (RGB colours for Streamlit) ─────────────────────────
     "colors": {
         "meat":  (255, 0, 0),
@@ -410,11 +417,20 @@ CONFIG = {
     "box_thickness": 2,
 }
 
+# Keep an immutable copy for reset and safe defaults
+DEFAULT_CONFIG = copy.deepcopy(CONFIG)
+
 # Model file paths
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 YOLO_PATH   = os.path.join(BASE_DIR, "model_mixed_rice.pt")
 RTDETR_PATH = os.path.join(BASE_DIR, "model_rtdetr_mixed_rice.pt")
 FRCNN_PATH  = os.path.join(BASE_DIR, "faster_rcnn_mixed_rice.pth")
+
+MODEL_PATHS = {
+    "yolo": YOLO_PATH,
+    "rtdetr": RTDETR_PATH,
+    "frcnn": FRCNN_PATH,
+}
 
 # Training results directory
 TRAINING_RESULTS_DIR = os.path.join(BASE_DIR, "training_results")
@@ -652,8 +668,7 @@ def load_detector(model_path: str):
 @st.cache_resource
 def get_detector(model_key: str):
     """Return a cached detector instance for the given model key."""
-    paths = {"yolo": YOLO_PATH, "rtdetr": RTDETR_PATH, "frcnn": FRCNN_PATH}
-    path = paths.get(model_key)
+    path = MODEL_PATHS.get(model_key)
     if path is None or not os.path.exists(path):
         return None
     return load_detector(path)
@@ -698,9 +713,11 @@ def checkout(img_rgb: np.ndarray, detector) -> CheckoutResult:
     # ── Build Detection objects ───────────────────────────────────────────
     detections: List[Detection] = []
 
+    plate_area = None
     if best_plate:
         x1, y1, x2, y2 = best_plate["bbox"]
         bbox_area = (x2 - x1) * (y2 - y1)
+        plate_area = bbox_area if bbox_area > 0 else None
         detections.append(Detection(
             class_name="plate",
             confidence=best_plate["confidence"],
@@ -714,7 +731,10 @@ def checkout(img_rgb: np.ndarray, detector) -> CheckoutResult:
     for raw in raw_foods:
         x1, y1, x2, y2 = raw["bbox"]
         bbox_area = (x2 - x1) * (y2 - y1)
-        area_frac = bbox_area / img_area
+        ref_area = img_area
+        if CONFIG.get("size_reference") == "plate" and plate_area:
+            ref_area = plate_area
+        area_frac = bbox_area / ref_area if ref_area > 0 else 0.0
 
         size  = estimate_size(area_frac)
         price = calculate_price(raw["class_name"], size)
@@ -795,6 +815,54 @@ def _draw_detections(image: np.ndarray, detections: List[Detection]) -> np.ndarr
         )
 
     return image
+
+
+def _image_to_png_bytes(image_rgb: np.ndarray) -> bytes:
+    """Convert an RGB image array to PNG bytes."""
+    image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+    success, buffer = cv2.imencode(".png", image_bgr)
+    return buffer.tobytes() if success else b""
+
+
+def _result_to_receipt_text(result: CheckoutResult) -> str:
+    """Build a plain-text receipt for download."""
+    currency = CONFIG["currency"]
+    lines = []
+    lines.append("Zapfan Smart Cashier")
+    lines.append(f"Model: {result.model_name}")
+    lines.append(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("-")
+
+    grouped: Dict[Tuple, Dict] = defaultdict(lambda: {"count": 0, "unit_price": 0.0})
+    for d in result.billable_items:
+        key = (d.class_name, d.size)
+        grouped[key]["count"] += 1
+        grouped[key]["unit_price"] = d.price
+
+    for (cls, size), info in sorted(grouped.items()):
+        count = info["count"]
+        unit = info["unit_price"]
+        line_total = unit * count
+        lines.append(f"{cls.capitalize()} ({size}) x{count}: {currency}{line_total:.2f}")
+
+    lines.append("-")
+    lines.append(f"Subtotal: {currency}{result.total_price:.2f}")
+    return "\n".join(lines)
+
+
+def _result_to_csv(result: CheckoutResult) -> str:
+    """Build a CSV string for receipt export."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["class", "size", "confidence", "unit_price"])
+    for d in result.billable_items:
+        writer.writerow([
+            d.class_name,
+            d.size,
+            f"{d.confidence:.4f}",
+            f"{d.price:.2f}",
+        ])
+    return output.getvalue()
 
 
 # ==============================================================================
@@ -923,6 +991,33 @@ def analyse_and_display(img_rgb, model_option, container=None):
                 )
                 st.caption(f"Items: {summary_str}")
 
+            # ── Downloads ───────────────────────────────────────────────
+            dl_col1, dl_col2, dl_col3 = st.columns(3)
+            with dl_col1:
+                st.download_button(
+                    "Download annotated image",
+                    data=_image_to_png_bytes(result.annotated_image),
+                    file_name="zapfan_annotated.png",
+                    mime="image/png",
+                    use_container_width=True,
+                )
+            with dl_col2:
+                st.download_button(
+                    "Download receipt (txt)",
+                    data=_result_to_receipt_text(result),
+                    file_name="zapfan_receipt.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+            with dl_col3:
+                st.download_button(
+                    "Download receipt (csv)",
+                    data=_result_to_csv(result),
+                    file_name="zapfan_receipt.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
         # ── Cropped items ─────────────────────────────────────────────────
         cropped = [
             (d.class_name, d.confidence, d.cropped_image)
@@ -939,6 +1034,66 @@ def analyse_and_display(img_rgb, model_option, container=None):
                             caption=f"{c_name.capitalize()} ({c_score:.0%})",
                             use_container_width=True,
                         )
+
+
+# ==============================================================================
+# Runtime Configuration Helpers
+# ==============================================================================
+
+def _reset_sidebar_settings():
+    """Reset sidebar controls to default config values."""
+    st.session_state["conf_slider"] = DEFAULT_CONFIG["confidence_threshold"]
+    st.session_state["iou_slider"] = DEFAULT_CONFIG["iou_threshold"]
+    st.session_state["size_small_max"] = DEFAULT_CONFIG["size_thresholds"]["small_max"]
+    st.session_state["size_medium_max"] = DEFAULT_CONFIG["size_thresholds"]["medium_max"]
+    st.session_state["price_meat"] = DEFAULT_CONFIG["base_prices"]["meat"]
+    st.session_state["price_rice"] = DEFAULT_CONFIG["base_prices"]["rice"]
+    st.session_state["price_vege"] = DEFAULT_CONFIG["base_prices"]["vege"]
+    st.session_state["mult_s"] = DEFAULT_CONFIG["size_multipliers"]["S"]
+    st.session_state["mult_m"] = DEFAULT_CONFIG["size_multipliers"]["M"]
+    st.session_state["mult_l"] = DEFAULT_CONFIG["size_multipliers"]["L"]
+    st.session_state["size_reference"] = DEFAULT_CONFIG["size_reference"]
+
+
+def _apply_runtime_config(enabled: bool):
+    """Apply sidebar settings into CONFIG when customization is enabled."""
+    if not enabled:
+        CONFIG.update(copy.deepcopy(DEFAULT_CONFIG))
+        return
+
+    CONFIG["confidence_threshold"] = st.session_state.get(
+        "conf_slider", DEFAULT_CONFIG["confidence_threshold"]
+    )
+    CONFIG["iou_threshold"] = st.session_state.get(
+        "iou_slider", DEFAULT_CONFIG["iou_threshold"]
+    )
+    CONFIG["size_thresholds"]["small_max"] = st.session_state.get(
+        "size_small_max", DEFAULT_CONFIG["size_thresholds"]["small_max"]
+    )
+    CONFIG["size_thresholds"]["medium_max"] = st.session_state.get(
+        "size_medium_max", DEFAULT_CONFIG["size_thresholds"]["medium_max"]
+    )
+    CONFIG["base_prices"]["meat"] = st.session_state.get(
+        "price_meat", DEFAULT_CONFIG["base_prices"]["meat"]
+    )
+    CONFIG["base_prices"]["rice"] = st.session_state.get(
+        "price_rice", DEFAULT_CONFIG["base_prices"]["rice"]
+    )
+    CONFIG["base_prices"]["vege"] = st.session_state.get(
+        "price_vege", DEFAULT_CONFIG["base_prices"]["vege"]
+    )
+    CONFIG["size_multipliers"]["S"] = st.session_state.get(
+        "mult_s", DEFAULT_CONFIG["size_multipliers"]["S"]
+    )
+    CONFIG["size_multipliers"]["M"] = st.session_state.get(
+        "mult_m", DEFAULT_CONFIG["size_multipliers"]["M"]
+    )
+    CONFIG["size_multipliers"]["L"] = st.session_state.get(
+        "mult_l", DEFAULT_CONFIG["size_multipliers"]["L"]
+    )
+    CONFIG["size_reference"] = st.session_state.get(
+        "size_reference", DEFAULT_CONFIG["size_reference"]
+    )
 
 
 # ==============================================================================
@@ -982,8 +1137,132 @@ MODEL_OPTIONS = ["YOLO (Fast)", "RT-DETR (Transformer)", "Faster R-CNN (Accurate
 with st.sidebar:
     st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:1.1rem;font-weight:700;color:#202124;margin-bottom:4px;">Settings</p>', unsafe_allow_html=True)
 
+    model_status = {k: os.path.exists(v) for k, v in MODEL_PATHS.items()}
+    st.markdown(
+        """
+        <div class="m-card-flat" style="padding:12px 16px;">
+            <p style="margin:0 0 6px 0;font-size:0.75rem;color:#9aa0a6;font-weight:600;letter-spacing:0.4px;">MODEL STATUS</p>
+        """,
+        unsafe_allow_html=True,
+    )
+    for key, label in [("yolo", "YOLOv8"), ("rtdetr", "RT-DETR"), ("frcnn", "Faster R-CNN")]:
+        status = "Available" if model_status.get(key) else "Missing"
+        color = "#188038" if model_status.get(key) else "#d93025"
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;font-size:0.85rem;'>"
+            f"<span>{label}</span><span style='color:{color};font-weight:600'>{status}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
     model_option = st.selectbox("AI Model", options=MODEL_OPTIONS, index=0)
     compare_all = st.checkbox("Compare all models side-by-side")
+
+    customize_settings = st.toggle("Customize pricing and detection", value=False, key="customize_settings")
+    if customize_settings:
+        with st.expander("Quick settings", expanded=True):
+            if st.button("Reset settings", use_container_width=True):
+                _reset_sidebar_settings()
+                st.rerun()
+
+            st.markdown("<div class='g-section'>Detection</div>", unsafe_allow_html=True)
+            st.slider(
+                "Confidence threshold",
+                min_value=0.10,
+                max_value=0.90,
+                value=DEFAULT_CONFIG["confidence_threshold"],
+                step=0.01,
+                key="conf_slider",
+            )
+            st.slider(
+                "IoU threshold",
+                min_value=0.10,
+                max_value=0.90,
+                value=DEFAULT_CONFIG["iou_threshold"],
+                step=0.01,
+                key="iou_slider",
+            )
+            st.selectbox(
+                "Size reference",
+                options=["image", "plate"],
+                index=0 if DEFAULT_CONFIG["size_reference"] == "image" else 1,
+                format_func=lambda x: "Full image" if x == "image" else "Detected plate",
+                key="size_reference",
+            )
+
+            st.markdown("<div class='g-section'>Portion sizing</div>", unsafe_allow_html=True)
+            small_max = st.slider(
+                "Small max (area ratio)",
+                min_value=0.01,
+                max_value=0.20,
+                value=DEFAULT_CONFIG["size_thresholds"]["small_max"],
+                step=0.01,
+                key="size_small_max",
+            )
+            medium_max = st.slider(
+                "Medium max (area ratio)",
+                min_value=0.02,
+                max_value=0.30,
+                value=DEFAULT_CONFIG["size_thresholds"]["medium_max"],
+                step=0.01,
+                key="size_medium_max",
+            )
+            if small_max >= medium_max:
+                st.warning("Medium threshold must be larger than Small. Auto-adjusted.")
+                st.session_state["size_medium_max"] = min(small_max + 0.01, 0.30)
+
+            st.markdown("<div class='g-section'>Pricing</div>", unsafe_allow_html=True)
+            st.number_input(
+                "Meat base price (RM)",
+                min_value=0.0,
+                max_value=20.0,
+                value=DEFAULT_CONFIG["base_prices"]["meat"],
+                step=0.1,
+                key="price_meat",
+            )
+            st.number_input(
+                "Rice base price (RM)",
+                min_value=0.0,
+                max_value=10.0,
+                value=DEFAULT_CONFIG["base_prices"]["rice"],
+                step=0.1,
+                key="price_rice",
+            )
+            st.number_input(
+                "Vegetable base price (RM)",
+                min_value=0.0,
+                max_value=10.0,
+                value=DEFAULT_CONFIG["base_prices"]["vege"],
+                step=0.1,
+                key="price_vege",
+            )
+            st.number_input(
+                "Small multiplier",
+                min_value=0.1,
+                max_value=2.0,
+                value=DEFAULT_CONFIG["size_multipliers"]["S"],
+                step=0.05,
+                key="mult_s",
+            )
+            st.number_input(
+                "Medium multiplier",
+                min_value=0.1,
+                max_value=2.0,
+                value=DEFAULT_CONFIG["size_multipliers"]["M"],
+                step=0.05,
+                key="mult_m",
+            )
+            st.number_input(
+                "Large multiplier",
+                min_value=0.1,
+                max_value=2.5,
+                value=DEFAULT_CONFIG["size_multipliers"]["L"],
+                step=0.05,
+                key="mult_l",
+            )
+
+    _apply_runtime_config(customize_settings)
 
     st.markdown("---")
     
@@ -998,12 +1277,19 @@ with st.sidebar:
 
     # Google-style price menu
     st.markdown('<p style="font-family:Google Sans,sans-serif;font-size:0.95rem;font-weight:500;color:#202124;">Price Menu</p>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="g-price-item"><div class="g-icon meat">🥩</div><div class="g-text"><div class="g-name">Meat</div><div class="g-val">RM 4.00</div></div></div>
-    <div class="g-price-item"><div class="g-icon rice">🍚</div><div class="g-text"><div class="g-name">Rice</div><div class="g-val">RM 1.50</div></div></div>
-    <div class="g-price-item"><div class="g-icon vege">🥬</div><div class="g-text"><div class="g-name">Vegetable</div><div class="g-val">RM 2.00</div></div></div>
-    """, unsafe_allow_html=True)
-    st.caption("Portion: **S** ×0.7 &nbsp; **M** ×1.0 &nbsp; **L** ×1.5")
+    st.markdown(
+        f"""
+        <div class="g-price-item"><div class="g-icon meat">🥩</div><div class="g-text"><div class="g-name">Meat</div><div class="g-val">RM {CONFIG['base_prices']['meat']:.2f}</div></div></div>
+        <div class="g-price-item"><div class="g-icon rice">🍚</div><div class="g-text"><div class="g-name">Rice</div><div class="g-val">RM {CONFIG['base_prices']['rice']:.2f}</div></div></div>
+        <div class="g-price-item"><div class="g-icon vege">🥬</div><div class="g-text"><div class="g-name">Vegetable</div><div class="g-val">RM {CONFIG['base_prices']['vege']:.2f}</div></div></div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Portion: **S** ×{CONFIG['size_multipliers']['S']:.2f} &nbsp; "
+        f"**M** ×{CONFIG['size_multipliers']['M']:.2f} &nbsp; "
+        f"**L** ×{CONFIG['size_multipliers']['L']:.2f}"
+    )
 
     # --- Image History ---
     if st.session_state.image_history:
@@ -1313,11 +1599,59 @@ with page_checkout:
             st.markdown("---")
             if compare_all:
                 st.markdown('<div class="g-section">Model comparison</div>', unsafe_allow_html=True)
-                tabs = st.tabs([m.split(" (")[0] for m in MODEL_OPTIONS])
-                for tab, m_opt in zip(tabs, MODEL_OPTIONS):
-                    analyse_and_display(img_rgb, m_opt, container=tab)
+                available_options = [
+                    m for m in MODEL_OPTIONS
+                    if get_detector(_resolve_model_key(m)) is not None
+                ]
+                if not available_options:
+                    st.error("No model weights found. Please add model files to the project.")
+                else:
+                    tabs = st.tabs([m.split(" (")[0] for m in available_options])
+                    for tab, m_opt in zip(tabs, available_options):
+                        analyse_and_display(img_rgb, m_opt, container=tab)
             else:
                 analyse_and_display(img_rgb, model_option)
+
+        # Batch analysis across history
+        if len(st.session_state.image_history) > 1:
+            with st.expander("Batch analysis (history)", expanded=False):
+                st.caption("Run analysis on all images in history using the selected model.")
+                run_batch = st.button("Run batch analysis", use_container_width=True)
+                if run_batch:
+                    model_key = _resolve_model_key(model_option)
+                    detector = get_detector(model_key)
+                    if detector is None:
+                        st.error("Selected model file is missing. Please choose another model.")
+                    else:
+                        rows = []
+                        with st.spinner("Running batch analysis..."):
+                            for name, img in st.session_state.image_history:
+                                result = checkout(img, detector)
+                                rows.append({
+                                    "image": name,
+                                    "items": len(result.billable_items),
+                                    "total": f"{CONFIG['currency']}{result.total_price:.2f}",
+                                    "speed_ms": f"{result.inference_time_ms:.0f}",
+                                })
+                        st.dataframe(rows, use_container_width=True)
+
+                        output = io.StringIO()
+                        writer = csv.writer(output)
+                        writer.writerow(["image", "items", "total", "speed_ms"])
+                        for row in rows:
+                            writer.writerow([
+                                row["image"],
+                                row["items"],
+                                row["total"],
+                                row["speed_ms"],
+                            ])
+                        st.download_button(
+                            "Download batch summary (csv)",
+                            data=output.getvalue(),
+                            file_name="zapfan_batch_summary.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                        )
 
         # Footer
         st.markdown('<div class="g-footer">🏆 Zapfan Smart Cashier © 2026 &middot; TARUMT BMCS2203 AI Project &middot; <a href="https://streamlit.io" target="_blank">Streamlit</a></div>', unsafe_allow_html=True)
