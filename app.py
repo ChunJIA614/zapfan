@@ -435,6 +435,9 @@ MODEL_PATHS = {
 # Training results directory
 TRAINING_RESULTS_DIR = os.path.join(BASE_DIR, "training_results")
 
+# Optional demo images directory
+DEMO_IMAGES_DIR = os.path.join(BASE_DIR, "demo_images")
+
 # Map model keys → training results subfolder + display name
 MODEL_RESULTS_MAP = {
     "yolo":  {"dir": os.path.join(TRAINING_RESULTS_DIR, "yolo"),  "name": "YOLOv8"},
@@ -598,6 +601,16 @@ class YOLODetector:
                     })
         return detections
 
+    def warmup(self):
+        if getattr(self, "_warmed", False):
+            return
+        dummy = np.zeros((CONFIG["imgsz"], CONFIG["imgsz"], 3), dtype=np.uint8)
+        try:
+            _ = self.predict(dummy)
+        except Exception:
+            pass
+        self._warmed = True
+
 
 class FasterRCNNDetector:
     """Wrapper for Faster R-CNN (torchvision)."""
@@ -646,6 +659,17 @@ class FasterRCNNDetector:
 
         return _nms_filter(detections, CONFIG["iou_threshold"])
 
+    @torch.no_grad()
+    def warmup(self):
+        if getattr(self, "_warmed", False):
+            return
+        dummy = torch.zeros((1, 3, 512, 512), device=self.device)
+        try:
+            _ = self.model(dummy)
+        except Exception:
+            pass
+        self._warmed = True
+
 
 def load_detector(model_path: str):
     """Auto-detect model type from filename and return the appropriate detector."""
@@ -666,12 +690,15 @@ def load_detector(model_path: str):
 # ==============================================================================
 
 @st.cache_resource
-def get_detector(model_key: str):
+def get_detector(model_key: str, warmup: bool = True):
     """Return a cached detector instance for the given model key."""
     path = MODEL_PATHS.get(model_key)
     if path is None or not os.path.exists(path):
         return None
-    return load_detector(path)
+    detector = load_detector(path)
+    if detector is not None and warmup:
+        detector.warmup()
+    return detector
 
 
 def _resolve_model_key(model_option: str) -> str:
@@ -863,6 +890,29 @@ def _result_to_csv(result: CheckoutResult) -> str:
             f"{d.price:.2f}",
         ])
     return output.getvalue()
+
+
+def _list_demo_images() -> List[str]:
+    """Return a sorted list of demo image filenames in demo_images/."""
+    if not os.path.isdir(DEMO_IMAGES_DIR):
+        return []
+    exts = {".jpg", ".jpeg", ".png"}
+    files = [
+        f for f in os.listdir(DEMO_IMAGES_DIR)
+        if Path(f).suffix.lower() in exts
+    ]
+    return sorted(files)
+
+
+def _load_demo_image(filename: str) -> Optional[np.ndarray]:
+    """Load a demo image by filename from demo_images/."""
+    path = os.path.join(DEMO_IMAGES_DIR, filename)
+    if not os.path.isfile(path):
+        return None
+    img_bgr = cv2.imread(path)
+    if img_bgr is None:
+        return None
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
 
 # ==============================================================================
